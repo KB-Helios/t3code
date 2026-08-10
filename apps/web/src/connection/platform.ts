@@ -1,10 +1,8 @@
 import {
   ClientPresentation,
-  CloudSession,
   EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
   PrimaryEnvironmentAuth,
-  RelayDeviceIdentity,
   SshEnvironmentGateway,
 } from "@t3tools/client-runtime/platform";
 import {
@@ -23,7 +21,6 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
-import { managedRelayAccountChanges, managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
 import {
   AuthStandardClientScopes,
@@ -49,7 +46,6 @@ import {
   type PrimaryEnvironmentTarget,
 } from "../environments/primary/target";
 import { clearComposerDraftsEnvironment } from "../composerDraftStore";
-import { isHostedStaticApp } from "../hostedPairing";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
 import {
@@ -89,27 +85,22 @@ const connectivityLayer = Connectivity.layer({
 });
 
 const wakeupsLayer = Wakeups.layer({
-  changes: Stream.merge(
-    Stream.callback<"application-active">((queue) =>
-      Effect.acquireRelease(
+  changes: Stream.callback<"application-active">((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const listener = () => {
+          if (document.visibilityState === "visible") {
+            Queue.offerUnsafe(queue, "application-active");
+          }
+        };
+        document.addEventListener("visibilitychange", listener);
+        return listener;
+      }),
+      (listener) =>
         Effect.sync(() => {
-          const listener = () => {
-            if (document.visibilityState === "visible") {
-              Queue.offerUnsafe(queue, "application-active");
-            }
-          };
-          document.addEventListener("visibilitychange", listener);
-          return listener;
+          document.removeEventListener("visibilitychange", listener);
         }),
-        (listener) =>
-          Effect.sync(() => {
-            document.removeEventListener("visibilitychange", listener);
-          }),
-      ).pipe(Effect.asVoid),
-    ),
-    managedRelayAccountChanges(appAtomRegistry).pipe(
-      Stream.map(() => "credentials-changed" as const),
-    ),
+    ).pipe(Effect.asVoid),
   ),
 });
 
