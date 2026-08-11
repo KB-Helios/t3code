@@ -108,11 +108,11 @@ it("selects an explicit CI Android ABI without changing the local default", () =
 
 it("uses platform-correct default Android SDK roots", () => {
   assert.equal(
-    resolveAndroidSdkRoot({ HOME: "/Users/showcase" }, "darwin"),
+    resolveAndroidSdkRoot({ HOME: "/Users/showcase" }, "darwin").replaceAll("\\", "/"),
     "/Users/showcase/Library/Android/sdk",
   );
   assert.equal(
-    resolveAndroidSdkRoot({ HOME: "/home/showcase" }, "linux"),
+    resolveAndroidSdkRoot({ HOME: "/home/showcase" }, "linux").replaceAll("\\", "/"),
     "/home/showcase/Android/Sdk",
   );
   assert.equal(
@@ -144,7 +144,7 @@ it("expands both appearances into independent upload-ready directories", () => {
   assert.deepStrictEqual(
     captures.map((capture) => ({
       appearance: capture.appearance,
-      directory: showcaseCaptureDirectory("/captures", capture),
+      directory: showcaseCaptureDirectory("/captures", capture).replaceAll("\\", "/"),
     })),
     [
       { appearance: "light", directory: "/captures/apple/iphone-test/light" },
@@ -245,26 +245,29 @@ it("selects a reachable LAN IPv4 address", () => {
 });
 
 it("maps capture scenes to the real application routes", () => {
-  assert.equal(showcaseSceneUrl("threads", "environment-1"), "t3code://");
-  assert.equal(showcaseSceneUrl("environments", "environment-1"), "t3code://settings/environments");
+  assert.equal(showcaseSceneUrl("threads", "environment-1"), "northbridgecode://");
+  assert.equal(
+    showcaseSceneUrl("environments", "environment-1"),
+    "northbridgecode://settings/environments",
+  );
   assert.equal(
     showcaseSceneUrl("thread", "environment-1"),
-    "t3code://threads/environment-1/remote-command-center",
+    "northbridgecode://threads/environment-1/remote-command-center",
   );
   assert.equal(
     showcaseSceneUrl("terminal", "environment-1"),
-    "t3code://threads/environment-1/remote-command-center/terminal?terminalId=term-1",
+    "northbridgecode://threads/environment-1/remote-command-center/terminal?terminalId=term-1",
   );
   assert.equal(
     showcaseSceneUrl("review", "environment-1"),
-    "t3code://threads/environment-1/remote-command-center/review",
+    "northbridgecode://threads/environment-1/remote-command-center/review",
   );
 });
 
 it("seeds a playful multi-environment project spectrum", () => {
   assert.deepStrictEqual(
     SHOWCASE_PROJECTS.map((project) => project.title),
-    ["T3 Code", "React", "Linux"],
+    ["NorthBridgeCode", "React", "Linux"],
   );
   assert.deepStrictEqual(
     SHOWCASE_ENVIRONMENTS.map((environment) => environment.label),

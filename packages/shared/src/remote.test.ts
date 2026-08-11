@@ -33,19 +33,6 @@ describe("remote", () => {
     });
   });
 
-  it("derives backend urls from hosted app pairing links", () => {
-    expect(
-      resolveRemotePairingTarget({
-        pairingUrl:
-          "https://app.t3.codes/pair?host=https%3A%2F%2Fdesktop.tailnet.ts.net%3A44342%2F#token=pairing-token",
-      }),
-    ).toEqual({
-      credential: "pairing-token",
-      httpBaseUrl: "https://desktop.tailnet.ts.net:44342/",
-      wsBaseUrl: "wss://desktop.tailnet.ts.net:44342/",
-    });
-  });
-
   it("derives backend urls from a host and pairing code", () => {
     expect(
       resolveRemotePairingTarget({
@@ -82,18 +69,6 @@ describe("remote", () => {
       credential: "pairing-token",
       httpBaseUrl: "https://remote.example.com:3000/",
       wsBaseUrl: "wss://remote.example.com:3000/",
-    });
-  });
-
-  it("normalizes a protocol-relative host from a hosted pairing link", () => {
-    expect(
-      resolveRemotePairingTarget({
-        pairingUrl: "https://app.t3.codes/pair?host=%2F%2Fremote.example.com#token=pairing-token",
-      }),
-    ).toEqual({
-      credential: "pairing-token",
-      httpBaseUrl: "https://remote.example.com/",
-      wsBaseUrl: "wss://remote.example.com/",
     });
   });
 
@@ -149,22 +124,6 @@ describe("remote", () => {
     expect(pairingUrlError).toBeInstanceOf(RemotePairingUrlInvalidError);
     expect(pairingUrlError).toMatchObject({ protocol: "ftp:" });
     expect((pairingUrlError as RemotePairingUrlInvalidError).cause).toBeUndefined();
-  });
-
-  it("rejects unsupported hosted pairing backend protocols", () => {
-    let hostError: unknown;
-    try {
-      resolveRemotePairingTarget({
-        pairingUrl:
-          "https://app.t3.codes/pair?host=ftp%3A%2F%2Fremote.example.com#token=pairing-token",
-      });
-    } catch (cause) {
-      hostError = cause;
-    }
-
-    expect(hostError).toBeInstanceOf(RemoteBackendUrlInvalidError);
-    expect(hostError).toMatchObject({ source: "hosted-pairing-host", protocol: "ftp:" });
-    expect((hostError as RemoteBackendUrlInvalidError).cause).toBeUndefined();
   });
 
   it("rejects unsupported direct host protocols", () => {

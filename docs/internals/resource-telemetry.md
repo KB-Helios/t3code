@@ -1,6 +1,6 @@
 # Resource telemetry architecture
 
-> For maintainers. Using T3 Code? See [docs/user](../user/).
+> For maintainers. Using NorthBridgeCode? See [docs/user](../user/).
 
 Status: implemented
 

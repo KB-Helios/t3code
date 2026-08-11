@@ -7,6 +7,8 @@ import * as Option from "effect/Option";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 
+const portablePath = (value: string) => value.replaceAll("\\", "/");
+
 const defaultInput = {
   dirname: "/repo/apps/desktop/dist-electron",
   homeDirectory: "/Users/alice",
@@ -51,24 +53,44 @@ describe("DesktopEnvironment", () => {
       );
 
       assert.equal(environment.isDevelopment, true);
-      assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
-      assert.equal(environment.baseDir, "/tmp/t3");
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
-      assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
       assert.equal(
-        environment.savedEnvironmentRegistryPath,
+        portablePath(environment.appDataDirectory),
+        "/Users/alice/Library/Application Support",
+      );
+      assert.equal(portablePath(environment.baseDir), "/tmp/t3");
+      assert.equal(portablePath(environment.stateDir), "/tmp/t3/userdata");
+      assert.equal(
+        portablePath(environment.desktopSettingsPath),
+        "/tmp/t3/userdata/desktop-settings.json",
+      );
+      assert.equal(
+        portablePath(environment.clientSettingsPath),
+        "/tmp/t3/userdata/client-settings.json",
+      );
+      assert.equal(
+        portablePath(environment.savedEnvironmentRegistryPath),
         "/tmp/t3/userdata/saved-environments.json",
       );
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.rootDir, "/repo");
-      assert.equal(environment.appRoot, "/repo");
-      assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
-      assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
+      assert.equal(portablePath(environment.serverSettingsPath), "/tmp/t3/userdata/settings.json");
+      assert.equal(portablePath(environment.logDir), "/tmp/t3/userdata/logs");
+      assert.equal(
+        portablePath(environment.browserArtifactsDir),
+        "/tmp/t3/userdata/browser-artifacts",
+      );
+      assert.match(portablePath(environment.rootDir), /^(?:[A-Z]:)?\/repo$/);
+      assert.match(portablePath(environment.appRoot), /^(?:[A-Z]:)?\/repo$/);
+      assert.match(
+        portablePath(environment.backendEntryPath),
+        /^(?:[A-Z]:)?\/repo\/apps\/server\/dist\/bin\.mjs$/,
+      );
+      assert.match(portablePath(environment.backendCwd), /^(?:[A-Z]:)?\/repo$/);
+      assert.equal(environment.branding.baseName, "NorthBridgeCode");
+      assert.equal(environment.displayName, "NorthBridgeCode (Dev)");
+      assert.equal(environment.appUserModelId, "com.kbhelios.northbridgecode.dev");
+      assert.equal(environment.linuxDesktopEntryName, "northbridgecode-dev.desktop");
+      assert.equal(environment.linuxWmClass, "northbridgecode-dev");
+      assert.equal(environment.userDataDirName, "northbridgecode-dev");
+      assert.deepEqual(environment.legacyUserDataDirNames, ["t3code-dev", "T3 Code (Dev)"]);
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
         Option.some("http://localhost:5173/"),
@@ -91,10 +113,26 @@ describe("DesktopEnvironment", () => {
       );
 
       assert.equal(environment.isDevelopment, false);
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assert.equal(portablePath(environment.stateDir), "/tmp/t3/userdata");
+      assert.equal(portablePath(environment.logDir), "/tmp/t3/userdata/logs");
+      assert.equal(
+        portablePath(environment.browserArtifactsDir),
+        "/tmp/t3/userdata/browser-artifacts",
+      );
+      assert.equal(portablePath(environment.serverSettingsPath), "/tmp/t3/userdata/settings.json");
+    }),
+  );
+
+  it.effect("uses the public NorthBridgeCode production identity", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment();
+
+      assert.equal(environment.displayName, "NorthBridgeCode");
+      assert.equal(environment.appUserModelId, "com.kbhelios.northbridgecode");
+      assert.equal(environment.linuxDesktopEntryName, "northbridgecode.desktop");
+      assert.equal(environment.linuxWmClass, "northbridgecode");
+      assert.equal(environment.userDataDirName, "northbridgecode");
+      assert.deepEqual(environment.legacyUserDataDirNames, ["t3code", "T3 Code (Alpha)"]);
     }),
   );
 
@@ -106,8 +144,8 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(portablePath(development.stateDir), "/Users/alice/.t3/dev");
+      assert.equal(portablePath(production.stateDir), "/Users/alice/.t3/userdata");
     }),
   );
 
@@ -139,7 +177,10 @@ describe("DesktopEnvironment", () => {
         Option.some("/Users/alice"),
       );
       assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~/project" }),
+        Option.map(
+          environment.resolvePickFolderDefaultPath({ initialPath: "~/project" }),
+          portablePath,
+        ),
         Option.some("/Users/alice/project"),
       );
     }),

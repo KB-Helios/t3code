@@ -1,3 +1,4 @@
+import { ForwardCompatibleArray } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
@@ -6,7 +7,6 @@ import {
   ConnectionProfile,
 } from "../connection/catalog.ts";
 import { type ConnectionTarget, PersistedConnectionTarget } from "../connection/model.ts";
-import * as TokenStore from "../authorization/tokenStore.ts";
 
 export const StoredConnectionCredential = Schema.Struct({
   connectionId: Schema.String,
@@ -16,10 +16,9 @@ export type StoredConnectionCredential = typeof StoredConnectionCredential.Type;
 
 export const ConnectionCatalogDocument = Schema.Struct({
   schemaVersion: Schema.Literal(1),
-  targets: Schema.Array(PersistedConnectionTarget),
+  targets: ForwardCompatibleArray(PersistedConnectionTarget),
   profiles: Schema.Array(ConnectionProfile),
   credentials: Schema.Array(StoredConnectionCredential),
-  remoteDpopTokens: Schema.Array(TokenStore.RemoteDpopAccessToken),
 });
 export type ConnectionCatalogDocument = typeof ConnectionCatalogDocument.Type;
 
@@ -28,7 +27,6 @@ export const EMPTY_CONNECTION_CATALOG_DOCUMENT: ConnectionCatalogDocument = Obje
   targets: [],
   profiles: [],
   credentials: [],
-  remoteDpopTokens: [],
 });
 
 export function replaceCatalogValue<A>(
@@ -51,7 +49,6 @@ export function removeCatalogValue<A>(
 function connectionIdOf(target: ConnectionTarget): string | null {
   switch (target._tag) {
     case "PrimaryConnectionTarget":
-    case "RelayConnectionTarget":
       return null;
     case "BearerConnectionTarget":
     case "SshConnectionTarget":
@@ -62,7 +59,6 @@ function connectionIdOf(target: ConnectionTarget): string | null {
 function removeConnectionMetadata(
   document: ConnectionCatalogDocument,
   target: ConnectionTarget,
-  removeRemoteToken: boolean,
 ): ConnectionCatalogDocument {
   const connectionId = connectionIdOf(target);
   return {
@@ -80,13 +76,6 @@ function removeConnectionMetadata(
       connectionId === null
         ? document.credentials
         : removeCatalogValue(document.credentials, (value) => value.connectionId, connectionId),
-    remoteDpopTokens: removeRemoteToken
-      ? removeCatalogValue(
-          document.remoteDpopTokens,
-          (value) => value.environmentId,
-          target.environmentId,
-        )
-      : document.remoteDpopTokens,
   };
 }
 
@@ -98,16 +87,13 @@ export function registerConnectionInCatalog(
   const previous = document.targets.find(
     (candidate) => candidate.environmentId === target.environmentId,
   );
-  const cleaned =
-    previous === undefined ? document : removeConnectionMetadata(document, previous, false);
+  const cleaned = previous === undefined ? document : removeConnectionMetadata(document, previous);
   const next: ConnectionCatalogDocument = {
     ...cleaned,
     targets: replaceCatalogValue(cleaned.targets, (value) => value.environmentId, target),
   };
 
   switch (registration._tag) {
-    case "RelayConnectionRegistration":
-      return next;
     case "BearerConnectionRegistration":
       return {
         ...next,
@@ -137,5 +123,5 @@ export function removeConnectionFromCatalog(
   document: ConnectionCatalogDocument,
   target: ConnectionTarget,
 ): ConnectionCatalogDocument {
-  return removeConnectionMetadata(document, target, true);
+  return removeConnectionMetadata(document, target);
 }

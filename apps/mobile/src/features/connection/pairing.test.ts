@@ -51,11 +51,9 @@ describe("extractPairingUrlFromQrPayload", () => {
 });
 
 describe("parsePairingUrl", () => {
-  it("reads hosted pairing links into backend host fields", () => {
+  it("reads direct pairing links into backend host fields", () => {
     expect(
-      parsePairingUrl(
-        "https://app.t3.codes/pair?host=https%3A%2F%2Fdesktop.tailnet.ts.net%2F#token=pairing-token",
-      ),
+      parsePairingUrl("https://desktop.tailnet.ts.net/pair#token=pairing-token"),
     ).toEqual({
       host: "https://desktop.tailnet.ts.net",
       code: "pairing-token",

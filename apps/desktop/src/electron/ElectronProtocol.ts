@@ -9,11 +9,20 @@ import * as Scope from "effect/Scope";
 import * as Electron from "electron";
 
 export const DESKTOP_HOST = "app";
+// Keep the renderer origin stable so upgrades retain origin-scoped browser state.
 export const DESKTOP_PRODUCTION_SCHEME = "t3code";
 export const DESKTOP_DEVELOPMENT_SCHEME = "t3code-dev";
+export const DESKTOP_PUBLIC_PRODUCTION_SCHEME = "northbridgecode";
+export const DESKTOP_PUBLIC_DEVELOPMENT_SCHEME = "northbridgecode-dev";
 
 export function getDesktopScheme(isDevelopment: boolean): string {
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;
+}
+
+export function getDesktopExternalSchemes(isDevelopment: boolean): readonly [string, string] {
+  return isDevelopment
+    ? [DESKTOP_PUBLIC_DEVELOPMENT_SCHEME, DESKTOP_DEVELOPMENT_SCHEME]
+    : [DESKTOP_PUBLIC_PRODUCTION_SCHEME, DESKTOP_PRODUCTION_SCHEME];
 }
 
 export function getDesktopOrigin(isDevelopment: boolean): string {
@@ -52,7 +61,6 @@ export interface DesktopProtocolRegistrationInput {
   readonly scheme: string;
   readonly targetOrigin: URL;
   readonly backendOrigin: URL;
-  readonly clerkFrontendApiHostname: string | undefined;
 }
 
 export class ElectronProtocol extends Context.Service<
@@ -65,20 +73,11 @@ export class ElectronProtocol extends Context.Service<
 >()("@t3tools/desktop/electron/ElectronProtocol") {}
 
 export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrationInput): string {
-  const clerkOrigin = input.clerkFrontendApiHostname
-    ? `https://${input.clerkFrontendApiHostname}`
-    : undefined;
-  const scriptSources = [
-    "'self'",
-    "'unsafe-inline'",
-    "'wasm-unsafe-eval'",
-    ...(clerkOrigin ? [clerkOrigin] : []),
-    "https://challenges.cloudflare.com",
-  ];
+  const scriptSources = ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"];
 
   // The renderer connects directly to user-configured environments in addition to
-  // the build-configured Clerk, relay, and OTLP endpoints. Those environment
-  // origins are not known when this response policy is created, so restrict
+  // its backend. Those environment origins are not known when this response
+  // policy is created, so restrict
   // connections by the network schemes the client supports instead of by host.
   const connectSources = ["'self'", "http:", "https:", "ws:", "wss:"];
 
@@ -90,7 +89,7 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
     "style-src 'self' 'unsafe-inline'",
     `font-src 'self' ${input.scheme}: data:`,
     "worker-src 'self' blob:",
-    "frame-src 'self' https://challenges.cloudflare.com",
+    "frame-src 'self'",
     "form-action 'self'",
   ].join("; ");
 }
