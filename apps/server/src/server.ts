@@ -78,6 +78,8 @@ import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import { authHttpApiLayer, environmentAuthenticatedAuthLayer } from "./auth/http.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import * as AgentAwarenessRegistrations from "./agentAwareness/AgentAwarenessRegistrations.ts";
+import * as AgentAwarenessPublisher from "./agentAwareness/AgentAwarenessPublisher.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
@@ -214,6 +216,17 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
+  Layer.provideMerge(
+    Layer.effectDiscard(
+      AgentAwarenessPublisher.AgentAwarenessPublisher.pipe(
+        Effect.flatMap((publisher) => publisher.start),
+      ),
+    ).pipe(
+      Layer.provide(
+        AgentAwarenessPublisher.layer.pipe(Layer.provide(AgentAwarenessRegistrations.layer)),
+      ),
+    ),
+  ),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 

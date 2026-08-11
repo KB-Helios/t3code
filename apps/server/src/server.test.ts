@@ -899,6 +899,7 @@ const buildAppUnderTest = (options?: {
       Layer.provideMerge(ServerSecretStore.layer),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provideMerge(FetchHttpClient.layer),
+      Layer.provide(SqlitePersistenceMemory),
       Layer.provide(layerConfig),
     );
 

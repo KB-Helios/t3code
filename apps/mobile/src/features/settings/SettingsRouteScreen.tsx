@@ -1,4 +1,4 @@
-import { useAtomSet } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { useNavigation } from "@react-navigation/native";
@@ -14,6 +14,12 @@ import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { WorkspaceSidebarToolbar } from "../layout/workspace-sidebar-toolbar";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom } from "../../state/preferences";
+import { AsyncResult } from "effect/unstable/reactivity";
+import * as Option from "effect/Option";
+import * as Effect from "effect/Effect";
+import { requestAgentNotificationPermission } from "../agent-awareness/notificationPermissions";
+import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import {
   type AppUpdateCheckState,
@@ -88,6 +94,10 @@ function LocalSettingsRouteScreen() {
 
         <GeneralSettingsSection />
 
+        {Platform.OS === "ios" && supportsAgentAwarenessPush() ? (
+          <AgentAwarenessSettingsSection />
+        ) : null}
+
         <SettingsSection title="Appearance">
           <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />
         </SettingsSection>
@@ -98,6 +108,60 @@ function LocalSettingsRouteScreen() {
 
         <AppSettingsSection />
       </ScrollView>
+    </View>
+  );
+}
+
+function AgentAwarenessSettingsSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const preferences = Option.getOrNull(AsyncResult.value(preferencesResult));
+  const notificationsEnabled = preferences?.notificationsEnabled === true;
+  const liveActivitiesEnabled = preferences?.liveActivitiesEnabled !== false;
+
+  const updateNotifications = useCallback(
+    async (enabled: boolean) => {
+      if (!enabled) {
+        savePreferences({ notificationsEnabled: false });
+        return;
+      }
+      try {
+        const permission = await Effect.runPromise(requestAgentNotificationPermission);
+        savePreferences({ notificationsEnabled: permission.type === "granted" });
+        if (permission.type !== "granted") {
+          Alert.alert(
+            "Notifications unavailable",
+            "Allow notifications in iOS Settings to receive agent alerts.",
+          );
+        }
+      } catch {
+        savePreferences({ notificationsEnabled: false });
+        Alert.alert("Notifications unavailable", "iOS notification permission could not be read.");
+      }
+    },
+    [savePreferences],
+  );
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Agent Awareness">
+        <SettingsSwitchRow
+          icon="bell"
+          label="Notifications"
+          value={notificationsEnabled}
+          onValueChange={(enabled) => void updateNotifications(enabled)}
+        />
+        <SettingsSwitchRow
+          icon="rectangle.on.rectangle"
+          label="Live Activities"
+          value={liveActivitiesEnabled}
+          onValueChange={(enabled) => savePreferences({ liveActivitiesEnabled: enabled })}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Each connected environment delivers its own iOS alerts. Environments without APNs
+        configuration remain fully usable.
+      </Text>
     </View>
   );
 }

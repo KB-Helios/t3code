@@ -155,6 +155,12 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  AgentAwarenessRegistrationError,
+  AgentAwarenessRegistrationInput,
+  AgentAwarenessRegistrationResult,
+  AgentAwarenessUnregistrationInput,
+} from "./agentAwareness.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -233,6 +239,8 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
+  agentAwarenessRegister: "agentAwareness.register",
+  agentAwarenessUnregister: "agentAwareness.unregister",
 
   // Source control methods
   sourceControlLookupRepository: "sourceControl.lookupRepository",
@@ -370,6 +378,18 @@ export const WsServerGetBackgroundPolicyRpc = Rpc.make(WS_METHODS.serverGetBackg
   payload: Schema.Struct({}),
   success: BackgroundPolicySnapshot,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsAgentAwarenessRegisterRpc = Rpc.make(WS_METHODS.agentAwarenessRegister, {
+  payload: AgentAwarenessRegistrationInput,
+  success: AgentAwarenessRegistrationResult,
+  error: Schema.Union([AgentAwarenessRegistrationError, EnvironmentAuthorizationError]),
+});
+
+export const WsAgentAwarenessUnregisterRpc = Rpc.make(WS_METHODS.agentAwarenessUnregister, {
+  payload: AgentAwarenessUnregistrationInput,
+  success: AgentAwarenessRegistrationResult,
+  error: Schema.Union([AgentAwarenessRegistrationError, EnvironmentAuthorizationError]),
 });
 
 export const WsSourceControlLookupRepositoryRpc = Rpc.make(
@@ -777,6 +797,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,
+  WsAgentAwarenessRegisterRpc,
+  WsAgentAwarenessUnregisterRpc,
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,

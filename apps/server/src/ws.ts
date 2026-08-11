@@ -1,4 +1,5 @@
 import * as Cause from "effect/Cause";
+import * as FileSystem from "effect/FileSystem";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -12,6 +13,7 @@ import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   AuthAccessStreamError,
+  AgentAwarenessRegistrationError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
   AuthSessionId,
@@ -115,6 +117,8 @@ import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
+import * as AgentAwarenessRegistrations from "./agentAwareness/AgentAwarenessRegistrations.ts";
+import { readApnsConfiguration } from "./agentAwareness/ApnsConfiguration.ts";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -371,6 +375,10 @@ const makeWsRpcLayer = (
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+      const agentAwarenessRegistrations =
+        yield* AgentAwarenessRegistrations.AgentAwarenessRegistrations;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const runPromise = Effect.runPromiseWith(yield* Effect.context<FileSystem.FileSystem>());
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
@@ -1021,6 +1029,58 @@ const makeWsRpcLayer = (
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
       return WsRpcGroup.of({
+        [WS_METHODS.agentAwarenessRegister]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentAwarenessRegister,
+            Effect.gen(function* () {
+              const registration = yield* agentAwarenessRegistrations.upsert(input).pipe(
+                Effect.mapError(
+                  () =>
+                    new AgentAwarenessRegistrationError({
+                      message: "Failed to persist the mobile registration.",
+                    }),
+                ),
+              );
+              const configuration = yield* Effect.promise(() =>
+                readApnsConfiguration(process.env, (path) =>
+                  runPromise(fileSystem.readFileString(path)),
+                ),
+              );
+              return configuration.capability === "available"
+                ? { capability: "available" as const, registeredAt: registration.registeredAt }
+                : {
+                    capability: "unavailable" as const,
+                    registeredAt: registration.registeredAt,
+                    reason: configuration.reason,
+                  };
+            }),
+            { "rpc.aggregate": "agent-awareness" },
+          ),
+        [WS_METHODS.agentAwarenessUnregister]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.agentAwarenessUnregister,
+            agentAwarenessRegistrations.remove(input.installationId).pipe(
+              Effect.mapError(
+                () =>
+                  new AgentAwarenessRegistrationError({
+                    message: "Failed to remove the mobile registration.",
+                  }),
+              ),
+              Effect.andThen(
+                Effect.promise(() =>
+                  readApnsConfiguration(process.env, (path) =>
+                    runPromise(fileSystem.readFileString(path)),
+                  ),
+                ),
+              ),
+              Effect.map((configuration) =>
+                configuration.capability === "available"
+                  ? { capability: "available" as const }
+                  : { capability: "unavailable" as const, reason: configuration.reason },
+              ),
+            ),
+            { "rpc.aggregate": "agent-awareness" },
+          ),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -2087,6 +2147,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           Effect.provide(
             makeWsRpcLayer(session, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provide(AgentAwarenessRegistrations.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
