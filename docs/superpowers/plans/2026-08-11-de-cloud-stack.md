@@ -75,4 +75,3 @@
 - [ ] Update visible web/server/docs/release identity and add focused assertions for public metadata.
 - [ ] Run focused typechecks/tests, desktop packaging checks available on Windows, Expo config/prebuild validation, and `git diff --check`.
 - [ ] Commit, push, and open a draft PR targeting `codex/self-hosted-ios-push`.
-

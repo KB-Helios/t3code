@@ -44,4 +44,3 @@ The existing separate NorthBridge iOS bundle identifier is not reused by default
 - Windows desktop artifact build on the repaired/branded stack.
 - Expo configuration/prebuild validation plus an iOS build on macOS before calling the iOS stack release-ready.
 - `git diff --check` before every commit and PR.
-
