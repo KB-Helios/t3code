@@ -345,8 +345,6 @@ export function createDevRunnerEnv({
     // agent working inside T3 Code), these leak through and the child server
     // fails startup with "The service launcher started a different t3 version"
     // (serviceLauncherClient.ts resolveStartup).
-    delete output.T3_SERVICE_LAUNCHER_CONTEXT;
-    delete output.T3_BOOT_SERVICE_UNIT;
 
     if (!isDesktopMode) {
       output.T3CODE_PORT = String(serverPort);

@@ -9,7 +9,7 @@ import {
   backgroundActivityObserverLayer,
   backgroundActivityReporterLayer,
 } from "../lib/backgroundActivityReporter";
-import { connectionPlatformLayer } from "./platform";
+import { connectionPlatformLayer, webCryptoLayer } from "./platform";
 
 const providedConnectionPlatformLayer = connectionPlatformLayer.pipe(
   Layer.provide(runtimeContextLayer),
@@ -22,6 +22,7 @@ type ConnectionLayerSource =
   | typeof snapshotLoaderLayer
   | typeof runtimeContextLayer
   | typeof connectionPlatformLayer
+  | typeof webCryptoLayer
   | typeof backgroundActivityObserverLayer
   | typeof backgroundActivityReporterLayer;
 
@@ -35,8 +36,9 @@ const providedClientConnectionLayer = Layer.merge(Connection.layer, snapshotLoad
   ),
 );
 
-const connectionLayer = backgroundActivityReporterLayer.pipe(
-  Layer.provideMerge(providedClientConnectionLayer),
+const connectionLayer = Layer.merge(
+  backgroundActivityReporterLayer.pipe(Layer.provideMerge(providedClientConnectionLayer)),
+  webCryptoLayer,
 );
 
 export const connectionAtomRuntime: Atom.AtomRuntime<

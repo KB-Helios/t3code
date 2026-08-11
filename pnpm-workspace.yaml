@@ -1,6 +1,5 @@
 packages:
   - apps/*
-  - infra/*
   - oxlint-plugin-t3code
   - packages/*
   - scripts
@@ -23,13 +22,6 @@ allowBuilds:
   workerd: false
 
 catalog:
-  "@clerk/backend": 3.14.0
-  "@clerk/clerk-js": 6.25.13
-  "@clerk/electron": 0.0.24
-  "@clerk/electron-passkeys": 0.0.3
-  "@clerk/expo": 4.2.0
-  "@clerk/react": 6.12.10
-  "@clerk/shared": 4.25.10
   "@effect/atom-react": 4.0.0-beta.103
   "@effect/openapi-generator": 4.0.0-beta.103
   "@effect/platform-bun": 4.0.0-beta.103
@@ -52,18 +44,6 @@ catalog:
   yaml: ^2.9.0
 
 minimumReleaseAgeExclude:
-  - "@clerk/backend@3.14.0"
-  - "@clerk/clerk-js@6.25.13"
-  - "@clerk/electron@0.0.24"
-  - "@clerk/expo@4.2.0"
-  - "@clerk/react@6.12.10"
-  - "@clerk/shared@4.25.10"
-  - "@distilled.cloud/aws@0.30.2"
-  - "@distilled.cloud/axiom@0.30.2"
-  - "@distilled.cloud/cloudflare@0.30.2"
-  - "@distilled.cloud/core@0.30.2"
-  - "@distilled.cloud/neon@0.30.2"
-  - "@distilled.cloud/planetscale@0.30.2"
   - "@effect/atom-react@4.0.0-beta.103"
   - "@effect/openapi-generator@4.0.0-beta.103"
   - "@effect/platform-bun@4.0.0-beta.103"
@@ -72,23 +52,9 @@ minimumReleaseAgeExclude:
   - "@effect/sql-pg@4.0.0-beta.103"
   - "@effect/sql-sqlite-bun@4.0.0-beta.103"
   - "@effect/vitest@4.0.0-beta.103"
-  - alchemy@2.0.0-beta.65
   - effect@4.0.0-beta.103
 
 overrides:
-  "@clerk/backend": "catalog:"
-  "@clerk/clerk-js": "catalog:"
-  "@clerk/clerk-js>@base-org/account": "-"
-  "@clerk/clerk-js>@coinbase/wallet-sdk": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-base": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-react": "-"
-  "@clerk/clerk-js>@solana/wallet-standard": "-"
-  "@clerk/clerk-js>@wallet-standard/core": "-"
-  "@clerk/electron": "catalog:"
-  "@clerk/electron-passkeys": "catalog:"
-  "@clerk/expo": "catalog:"
-  "@clerk/react": "catalog:"
-  "@clerk/shared": "catalog:"
   "@effect/atom-react": "catalog:"
   "@effect/platform-bun": "catalog:"
   "@effect/platform-node": "catalog:"
@@ -108,9 +74,6 @@ overrides:
   yaml: "catalog:"
 
 packageExtensions:
-  "@clerk/expo@*":
-    dependencies:
-      "@expo/config-plugins": 56.0.9
   "@effect/vitest@*":
     dependencies:
       vite-plus: "catalog:"

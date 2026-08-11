@@ -31,6 +31,7 @@ import {
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -46,7 +47,6 @@ import {
   type PrimaryEnvironmentTarget,
 } from "../environments/primary/target";
 import { clearComposerDraftsEnvironment } from "../composerDraftStore";
-import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
 import {
   desktopLocalConnectionId,
@@ -56,6 +56,19 @@ import {
 import { connectionStorageLayer } from "./storage";
 
 let nextObservedRpcRequestId = 0;
+
+export const webCryptoLayer = Layer.succeed(
+  Crypto.Crypto,
+  Crypto.make({
+    randomBytes: (size) => globalThis.crypto.getRandomValues(new Uint8Array(size)),
+    digest: (algorithm, data) => {
+      const input = new Uint8Array(data);
+      return Effect.promise(() => globalThis.crypto.subtle.digest(algorithm, input)).pipe(
+        Effect.map((digest) => new Uint8Array(digest)),
+      );
+    },
+  }),
+);
 
 function currentNetworkStatus(): "unknown" | "offline" | "online" {
   if (typeof navigator === "undefined") {
@@ -167,36 +180,6 @@ const capabilitiesLayer = Layer.effectContext(
       metadata: clientMetadata(),
       scopes: AuthStandardClientScopes,
     });
-    const cloudSession = CloudSession.of({
-      clerkToken: Effect.gen(function* () {
-        const session = appAtomRegistry.get(managedRelaySessionAtom);
-        if (session === null) {
-          return yield* new ConnectionBlockedError({
-            reason: "authentication",
-            detail: "Sign in to T3 Connect to connect this environment.",
-          });
-        }
-        const token = yield* session.readClerkToken().pipe(
-          Effect.mapError(
-            (error) =>
-              new ConnectionTransientError({
-                reason: "network",
-                detail: error.message,
-              }),
-          ),
-        );
-        if (token === null) {
-          return yield* new ConnectionBlockedError({
-            reason: "authentication",
-            detail: "The T3 Connect session is unavailable.",
-          });
-        }
-        return token;
-      }),
-    });
-    const identity = RelayDeviceIdentity.of({
-      deviceId: Effect.succeed(Option.none()),
-    });
     const primaryAuth = PrimaryEnvironmentAuth.of({
       bearerToken: Effect.tryPromise({
         try: readDesktopPrimaryBearerToken,
@@ -265,9 +248,7 @@ const capabilitiesLayer = Layer.effectContext(
       }),
     });
 
-    return Context.make(CloudSession, cloudSession).pipe(
-      Context.add(PrimaryEnvironmentAuth, primaryAuth),
-      Context.add(RelayDeviceIdentity, identity),
+    return Context.make(PrimaryEnvironmentAuth, primaryAuth).pipe(
       Context.add(ClientPresentation, presentation),
       Context.add(SshEnvironmentGateway, ssh),
     );
@@ -447,11 +428,6 @@ export function secondaryRegistrationsToRetainAfterTopologyRead(
 const platformConnectionSourceLayer = Layer.effect(
   PlatformConnectionSource,
   Effect.gen(function* () {
-    if (isHostedStaticApp()) {
-      return PlatformConnectionSource.of({
-        registrations: Stream.empty,
-      });
-    }
     const cacheRef = yield* Ref.make(new Map<string, CachedPlatformRegistration>());
 
     // Resolve the full set of platform-managed environments the host currently

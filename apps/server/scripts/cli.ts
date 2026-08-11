@@ -225,7 +225,6 @@ const publishCmd = Command.make(
       // Assert build assets exist
       for (const relPath of [
         "dist/bin.mjs",
-        "dist/service-launcher.mjs",
         "dist/client/index.html",
       ]) {
         const abs = path.join(serverDir, relPath);

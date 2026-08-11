@@ -1,4 +1,7 @@
-import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type PersistedSavedEnvironmentRecord as CurrentPersistedSavedEnvironmentRecord,
+} from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -15,8 +18,12 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 
 type PersistedSavedEnvironmentDesktopSsh = NonNullable<
-  PersistedSavedEnvironmentRecord["desktopSsh"]
+  CurrentPersistedSavedEnvironmentRecord["desktopSsh"]
 >;
+
+export type PersistedSavedEnvironmentRecord = CurrentPersistedSavedEnvironmentRecord & {
+  readonly relayManaged?: { readonly relayUrl: string };
+};
 
 interface PersistedSavedEnvironmentStorageRecord extends Omit<
   PersistedSavedEnvironmentRecord,

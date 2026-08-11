@@ -1,3 +1,4 @@
+import { ForwardCompatibleArray } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
@@ -15,7 +16,7 @@ export type StoredConnectionCredential = typeof StoredConnectionCredential.Type;
 
 export const ConnectionCatalogDocument = Schema.Struct({
   schemaVersion: Schema.Literal(1),
-  targets: Schema.Array(PersistedConnectionTarget),
+  targets: ForwardCompatibleArray(PersistedConnectionTarget),
   profiles: Schema.Array(ConnectionProfile),
   credentials: Schema.Array(StoredConnectionCredential),
 });

@@ -2,7 +2,6 @@ import {
   BearerConnectionCredential,
   BearerConnectionProfile,
   BearerConnectionTarget,
-  RelayConnectionTarget,
   SshConnectionProfile,
   SshConnectionTarget,
 } from "@t3tools/client-runtime/connection";
@@ -10,7 +9,6 @@ import {
   ConnectionCatalogDocument as RuntimeConnectionCatalogDocument,
   type ConnectionCatalogDocument as RuntimeConnectionCatalogDocumentType,
 } from "@t3tools/client-runtime/platform";
-import type { PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -288,7 +286,7 @@ function connectionId(prefix: "bearer" | "ssh", environmentId: string): string {
 const migrateSavedEnvironmentRecords = Effect.fn(
   "desktop.connectionCatalogStore.migrateSavedEnvironmentRecords",
 )(function* (
-  records: readonly PersistedSavedEnvironmentRecord[],
+  records: readonly DesktopSavedEnvironments.PersistedSavedEnvironmentRecord[],
   savedEnvironments: DesktopSavedEnvironments.DesktopSavedEnvironments["Service"],
   catalogPath: string,
 ): Effect.fn.Return<
@@ -301,12 +299,6 @@ const migrateSavedEnvironmentRecords = Effect.fn(
 
   for (const record of records) {
     if (record.relayManaged !== undefined) {
-      targets.push(
-        new RelayConnectionTarget({
-          environmentId: record.environmentId,
-          label: record.label,
-        }),
-      );
       continue;
     }
 
@@ -371,7 +363,6 @@ const migrateSavedEnvironmentRecords = Effect.fn(
     targets,
     profiles,
     credentials,
-    remoteDpopTokens: [],
   };
 });
 
