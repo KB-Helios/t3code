@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { AgentAwarenessRegistrationInput } from "./agentAwareness.ts";
+import {
+  AgentAwarenessRegistrationInput,
+  AgentAwarenessRegistrationResult,
+} from "./agentAwareness.ts";
 
 const decodeRegistration = Schema.decodeUnknownSync(AgentAwarenessRegistrationInput);
+const decodeResult = Schema.decodeUnknownSync(AgentAwarenessRegistrationResult);
 
 describe("agent awareness contracts", () => {
   it("accepts an installation-scoped registration without a selectable environment id", () => {
@@ -39,5 +43,16 @@ describe("agent awareness contracts", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("requires a reason only for unavailable capability results", () => {
+    expect(() => decodeResult({ capability: "unavailable" })).toThrow();
+    expect(decodeResult({ capability: "available", reason: "apns-not-configured" })).toEqual({
+      capability: "available",
+    });
+    expect(decodeResult({ capability: "unavailable", reason: "apns-not-configured" })).toEqual({
+      capability: "unavailable",
+      reason: "apns-not-configured",
+    });
   });
 });

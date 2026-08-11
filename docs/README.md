@@ -10,6 +10,7 @@
 - [Keeping app and server in sync](./user/updating.md)
 - [Source control integrations](./user/source-control.md)
 - [Background service (Linux)](./user/background-service.md)
+- [iOS notifications and Live Activities](./user/ios-push.md)
 - Providers: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md)
 
 Mobile app: [apps/mobile/README.md](../apps/mobile/README.md)
@@ -37,3 +38,4 @@ policy in [CONTRIBUTING.md](../CONTRIBUTING.md); agent rules in [AGENTS.md](../A
 - [Release](./operations/release.md)
 - [Observability](./operations/observability.md)
 - [Mobile app store screenshots](./operations/mobile-app-store-screenshots.md)
+- [Self-hosted iOS push](./operations/ios-push.md)

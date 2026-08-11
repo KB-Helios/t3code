@@ -36,6 +36,8 @@ export interface ApnsDeliveryResult {
 }
 
 const PROVIDER_TOKEN_REUSE_SECONDS = 45 * 60;
+const LIVE_ACTIVITY_STALE_AFTER_SECONDS = 10 * 60;
+const LIVE_ACTIVITY_DISMISS_AFTER_SECONDS = 5 * 60;
 
 function encodeBase64Url(value: string | Uint8Array): string {
   return Buffer.from(value).toString("base64url");
@@ -55,12 +57,26 @@ function makeProviderToken(config: ApnsConfig, issuedAt: number): string {
 function defaultTransport(request: ApnsRequest): Promise<ApnsResponse> {
   return new Promise((resolve, reject) => {
     const session = NodeHttp2.connect(request.authority);
-    session.once("error", reject);
-    const stream = session.request({
-      [NodeHttp2.constants.HTTP2_HEADER_METHOD]: "POST",
-      [NodeHttp2.constants.HTTP2_HEADER_PATH]: request.path,
-      ...request.headers,
-    });
+    let stream: NodeHttp2.ClientHttp2Stream | undefined;
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      stream?.destroy();
+      session.destroy();
+      reject(error);
+    };
+    session.once("error", fail);
+    try {
+      stream = session.request({
+        [NodeHttp2.constants.HTTP2_HEADER_METHOD]: "POST",
+        [NodeHttp2.constants.HTTP2_HEADER_PATH]: request.path,
+        ...request.headers,
+      });
+    } catch (error) {
+      fail(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     let status = 0;
     let responseHeaders: NodeHttp2.IncomingHttpHeaders = {};
     let body = "";
@@ -72,11 +88,11 @@ function defaultTransport(request: ApnsRequest): Promise<ApnsResponse> {
     stream.on("data", (chunk: string) => {
       body += chunk;
     });
-    stream.once("error", (error) => {
-      session.close();
-      reject(error);
-    });
+    stream.once("error", fail);
     stream.once("end", () => {
+      if (settled) return;
+      settled = true;
+      stream?.close();
       session.close();
       resolve({ status, headers: responseHeaders as Record<string, string>, body });
     });
@@ -112,13 +128,26 @@ export function makeApnsClient(
       },
       payload,
     });
-    const parsed = response.body.trim()
-      ? (JSON.parse(response.body) as { readonly reason?: string })
-      : null;
+    const trimmedBody = response.body.trim();
+    let reason: string | undefined;
+    if (trimmedBody) {
+      try {
+        const parsed = JSON.parse(trimmedBody) as unknown;
+        reason =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "reason" in parsed &&
+          typeof parsed.reason === "string"
+            ? parsed.reason
+            : trimmedBody;
+      } catch {
+        reason = trimmedBody;
+      }
+    }
     return {
       ok: response.status >= 200 && response.status < 300,
       status: response.status,
-      ...(parsed?.reason ? { reason: parsed.reason } : {}),
+      ...(reason ? { reason } : {}),
     };
   };
 
@@ -164,9 +193,17 @@ export function makeApnsClient(
             timestamp: input.timestamp,
             event: input.event,
             ...(input.event === "start"
-              ? { "attributes-type": "LiveActivityAttributes", attributes: {} }
+              ? {
+                  "attributes-type": "LiveActivityAttributes",
+                  attributes: {},
+                  "input-push-token": 1,
+                  alert: { title: "T3 Code", body: "Agent work in progress" },
+                }
               : {}),
             "content-state": input.state,
+            ...(input.event === "end"
+              ? { "dismissal-date": input.timestamp + LIVE_ACTIVITY_DISMISS_AFTER_SECONDS }
+              : { "stale-date": input.timestamp + LIVE_ACTIVITY_STALE_AFTER_SECONDS }),
           },
         },
       );

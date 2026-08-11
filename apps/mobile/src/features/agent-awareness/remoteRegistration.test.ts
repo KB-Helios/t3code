@@ -1,20 +1,29 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { AgentAwarenessRegistrationInput, EnvironmentId } from "@t3tools/contracts";
 
-import { createAgentAwarenessRegistrationManager } from "./remoteRegistration.ts";
+import {
+  createAgentAwarenessRegistrationManager,
+  removeEnvironmentWithBestEffortUnregister,
+} from "./remoteRegistration.ts";
 
 describe("environment-owned agent awareness registration", () => {
-  it("registers each connected environment and unregisters only the removed environment", async () => {
+  it("registers reconnects without unregistering transient disconnects", async () => {
     const register = vi.fn(
       (_environmentId: EnvironmentId, _input: AgentAwarenessRegistrationInput) =>
         Promise.resolve({ capability: "available" as const }),
     );
-    const unregister = vi.fn(() => Promise.resolve({ capability: "unavailable" as const }));
+    const unregister = vi.fn(() =>
+      Promise.resolve({
+        capability: "unavailable" as const,
+        reason: "apns-not-configured" as const,
+      }),
+    );
     const manager = createAgentAwarenessRegistrationManager({
       installationId: () => Promise.resolve("installation-1"),
       readDeviceToken: () => Promise.resolve("native-apns-token"),
       subscribeDeviceToken: () => ({ remove: vi.fn() }),
       subscribePushToStartToken: () => ({ remove: vi.fn() }),
+      endLiveActivities: () => Promise.resolve(),
       register,
       unregister,
     });
@@ -30,10 +39,11 @@ describe("environment-owned agent awareness registration", () => {
     });
 
     await manager.reconcile(["environment-b"] as never);
-    expect(unregister).toHaveBeenCalledWith("environment-a", {
-      installationId: "installation-1",
-    });
+    expect(unregister).not.toHaveBeenCalled();
     expect(register).toHaveBeenCalledTimes(2);
+
+    await manager.reconcile(["environment-a", "environment-b"] as never);
+    expect(register).toHaveBeenCalledTimes(3);
   });
 
   it("re-registers every connected environment when the native device token changes", async () => {
@@ -50,8 +60,14 @@ describe("environment-owned agent awareness registration", () => {
         return { remove: vi.fn() };
       },
       subscribePushToStartToken: () => ({ remove: vi.fn() }),
+      endLiveActivities: () => Promise.resolve(),
       register,
-      unregister: vi.fn(() => Promise.resolve({ capability: "unavailable" as const })),
+      unregister: vi.fn(() =>
+        Promise.resolve({
+          capability: "unavailable" as const,
+          reason: "apns-not-configured" as const,
+        }),
+      ),
     });
     manager.setPreferences({ notificationsEnabled: true, liveActivitiesEnabled: true });
     await manager.idle();
@@ -68,13 +84,17 @@ describe("environment-owned agent awareness registration", () => {
   });
 
   it("reads the native token after notification permission is enabled", async () => {
-    const register = vi.fn(() => Promise.resolve({ capability: "available" as const }));
+    const register = vi.fn(
+      (_environmentId: EnvironmentId, _input: AgentAwarenessRegistrationInput) =>
+        Promise.resolve({ capability: "available" as const }),
+    );
     const readDeviceToken = vi.fn(() => Promise.resolve("native-token"));
     const manager = createAgentAwarenessRegistrationManager({
       installationId: () => Promise.resolve("installation-1"),
       readDeviceToken,
       subscribeDeviceToken: () => ({ remove: vi.fn() }),
       subscribePushToStartToken: () => ({ remove: vi.fn() }),
+      endLiveActivities: () => Promise.resolve(),
       register,
       unregister: vi.fn(),
     });
@@ -101,6 +121,7 @@ describe("environment-owned agent awareness registration", () => {
       readDeviceToken: () => Promise.resolve(null),
       subscribeDeviceToken: () => deviceSubscription,
       subscribePushToStartToken: () => activitySubscription,
+      endLiveActivities: () => Promise.resolve(),
       register: vi.fn(),
       unregister: vi.fn(),
     });
@@ -109,5 +130,71 @@ describe("environment-owned agent awareness registration", () => {
 
     expect(deviceSubscription.remove).toHaveBeenCalledOnce();
     expect(activitySubscription.remove).toHaveBeenCalledOnce();
+  });
+
+  it("ends local activities and clears the update token when Live Activities are disabled", async () => {
+    let pushToStartListener: ((token: string) => void) | null = null;
+    const register = vi.fn(
+      (_environmentId: EnvironmentId, _input: AgentAwarenessRegistrationInput) =>
+        Promise.resolve({ capability: "available" as const }),
+    );
+    const endLiveActivities = vi.fn(() => Promise.resolve());
+    const manager = createAgentAwarenessRegistrationManager({
+      installationId: () => Promise.resolve("installation-1"),
+      readDeviceToken: () => Promise.resolve(null),
+      subscribeDeviceToken: () => ({ remove: vi.fn() }),
+      subscribePushToStartToken: (listener) => {
+        pushToStartListener = listener;
+        return { remove: vi.fn() };
+      },
+      endLiveActivities,
+      register,
+      unregister: vi.fn(),
+    });
+    await manager.reconcile(["environment-a"] as never);
+    pushToStartListener!("push-to-start-token");
+    manager.setLiveActivityToken("update-token");
+    await manager.idle();
+
+    manager.setPreferences({ notificationsEnabled: false, liveActivitiesEnabled: false });
+    await manager.idle();
+
+    expect(endLiveActivities).toHaveBeenCalledOnce();
+    expect(register).toHaveBeenLastCalledWith(
+      "environment-a",
+      expect.objectContaining({
+        pushToStartToken: "push-to-start-token",
+        preferences: { notificationsEnabled: false, liveActivitiesEnabled: false },
+      }),
+    );
+    expect(register.mock.calls.at(-1)?.[1]).not.toHaveProperty("liveActivityToken");
+
+    manager.setLiveActivityToken("stale-ended-token");
+    await manager.idle();
+    manager.setPreferences({ notificationsEnabled: false, liveActivitiesEnabled: true });
+    await manager.idle();
+    expect(register).toHaveBeenLastCalledWith(
+      "environment-a",
+      expect.objectContaining({
+        pushToStartToken: "push-to-start-token",
+        preferences: { notificationsEnabled: false, liveActivitiesEnabled: true },
+      }),
+    );
+    expect(register.mock.calls.at(-1)?.[1]).not.toHaveProperty("liveActivityToken");
+  });
+
+  it("removes an environment even when best-effort unregister is unreachable", async () => {
+    const order: string[] = [];
+    await removeEnvironmentWithBestEffortUnregister({
+      unregister: async () => {
+        order.push("unregister");
+        throw new Error("offline");
+      },
+      remove: async () => {
+        order.push("remove");
+      },
+    });
+
+    expect(order).toEqual(["unregister", "remove"]);
   });
 });

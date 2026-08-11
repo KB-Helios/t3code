@@ -80,12 +80,42 @@ describe("APNs client", () => {
           event: "start",
           "attributes-type": "LiveActivityAttributes",
           attributes: {},
+          "input-push-token": 1,
+          alert: { title: "T3 Code", body: "Agent work in progress" },
           "content-state": state,
+          "stale-date": 700,
         },
       },
-      { aps: { timestamp: 101, event: "update", "content-state": state } },
-      { aps: { timestamp: 102, event: "end", "content-state": state } },
+      {
+        aps: {
+          timestamp: 101,
+          event: "update",
+          "content-state": state,
+          "stale-date": 701,
+        },
+      },
+      {
+        aps: {
+          timestamp: 102,
+          event: "end",
+          "content-state": state,
+          "dismissal-date": 402,
+        },
+      },
     ]);
+  });
+
+  it("returns malformed APNs error bodies without throwing", async () => {
+    const module = await import("./ApnsClient.ts");
+    const client = module.makeApnsClient(testConfig(), async () => ({
+      status: 503,
+      headers: {},
+      body: "temporarily unavailable",
+    }));
+
+    await expect(
+      client.sendNotification({ token: "device", title: "Title", body: "Body", deepLink: "/" }),
+    ).resolves.toEqual({ ok: false, status: 503, reason: "temporarily unavailable" });
   });
 
   it("reuses and refreshes an ES256 provider token inside Apple's one-hour limit", async () => {

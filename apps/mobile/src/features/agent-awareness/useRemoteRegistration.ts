@@ -1,93 +1,21 @@
 import { useAtomValue } from "@effect/atom-react";
-import { EnvironmentRegistry, EnvironmentSupervisor } from "@t3tools/client-runtime/connection";
-import {
-  type AgentAwarenessRegistrationInput,
-  type AgentAwarenessRegistrationResult,
-  type AgentAwarenessUnregistrationInput,
-  type EnvironmentId,
-  WS_METHODS,
-} from "@t3tools/contracts";
-import * as Effect from "effect/Effect";
-import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult } from "effect/unstable/reactivity";
 import * as Notifications from "expo-notifications";
 import { addPushToStartTokenListener } from "expo-widgets";
 import { useEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
 
-import { connectionAtomRuntime } from "../../connection/runtime";
-import { createRuntimeCommand } from "@t3tools/client-runtime/state/runtime";
-import { appAtomRegistry } from "../../state/atom-registry";
 import { loadOrCreateAgentAwarenessDeviceId } from "../../persistence/imperative";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import AgentActivity from "../../widgets/AgentActivity";
 import { supportsAgentAwarenessPush } from "./capabilities";
 import { createAgentAwarenessRegistrationManager } from "./remoteRegistration";
-
-const registerCommand = createRuntimeCommand(connectionAtomRuntime, {
-  label: "agent-awareness:register",
-  execute: (request: { environmentId: EnvironmentId; input: AgentAwarenessRegistrationInput }) =>
-    EnvironmentRegistry.pipe(
-      Effect.flatMap((registry) =>
-        registry.run(
-          request.environmentId,
-          Effect.gen(function* () {
-            const supervisor = yield* EnvironmentSupervisor;
-            const session = yield* SubscriptionRef.get(supervisor.session);
-            if (Option.isNone(session)) {
-              return yield* Effect.fail(
-                new Error(`Environment ${request.environmentId} is not connected.`),
-              );
-            }
-            return yield* session.value.client[WS_METHODS.agentAwarenessRegister](request.input);
-          }),
-        ),
-      ),
-    ),
-});
-
-const unregisterCommand = createRuntimeCommand(connectionAtomRuntime, {
-  label: "agent-awareness:unregister",
-  execute: (request: { environmentId: EnvironmentId; input: AgentAwarenessUnregistrationInput }) =>
-    EnvironmentRegistry.pipe(
-      Effect.flatMap((registry) =>
-        registry.run(
-          request.environmentId,
-          Effect.gen(function* () {
-            const supervisor = yield* EnvironmentSupervisor;
-            const session = yield* SubscriptionRef.get(supervisor.session);
-            if (Option.isNone(session)) {
-              return yield* Effect.fail(
-                new Error(`Environment ${request.environmentId} is not connected.`),
-              );
-            }
-            return yield* session.value.client[WS_METHODS.agentAwarenessUnregister](request.input);
-          }),
-        ),
-      ),
-    ),
-});
-
-async function runRegistrationCommand(
-  command: typeof registerCommand | typeof unregisterCommand,
-  request: {
-    environmentId: EnvironmentId;
-    input: AgentAwarenessRegistrationInput | AgentAwarenessUnregistrationInput;
-  },
-): Promise<AgentAwarenessRegistrationResult> {
-  const result = await command.run(appAtomRegistry, request as never);
-  if (AsyncResult.isSuccess(result)) return result.value;
-  throw Cause.squash(result.cause);
-}
-
-const register = (environmentId: EnvironmentId, input: AgentAwarenessRegistrationInput) =>
-  runRegistrationCommand(registerCommand, { environmentId, input });
-
-const unregister = (environmentId: EnvironmentId, input: AgentAwarenessUnregistrationInput) =>
-  runRegistrationCommand(unregisterCommand, { environmentId, input });
+import {
+  registerAgentAwarenessEnvironment,
+  unregisterAgentAwarenessEnvironment,
+} from "./registrationRpc";
 
 async function readNativeDeviceToken(): Promise<string | null> {
   if (Platform.OS !== "ios" || !supportsAgentAwarenessPush()) return null;
@@ -117,8 +45,13 @@ export function useAgentAwarenessRemoteRegistration(): void {
         Platform.OS === "ios"
           ? addPushToStartTokenListener((event) => listener(event.activityPushToStartToken))
           : { remove: () => undefined },
-      register,
-      unregister,
+      endLiveActivities: async () => {
+        await Promise.all(
+          AgentActivity.getInstances().map((activity) => activity.end("immediate")),
+        );
+      },
+      register: registerAgentAwarenessEnvironment,
+      unregister: unregisterAgentAwarenessEnvironment,
     });
     managerRef.current = manager;
     const activitySubscriptions: Array<{ remove: () => void }> = [];

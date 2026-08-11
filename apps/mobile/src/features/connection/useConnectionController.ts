@@ -9,6 +9,8 @@ import {
 import { useEnvironments } from "../../state/environments";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { projectWorkspaceEnvironment, type WorkspaceEnvironment } from "../../state/workspaceModel";
+import { removeEnvironmentWithBestEffortUnregister } from "../agent-awareness/remoteRegistration";
+import { unregisterAgentAwarenessEnvironmentBeforeRemoval } from "../agent-awareness/registrationRpc";
 
 export function useConnectionController() {
   const { environments } = useEnvironments();
@@ -28,7 +30,11 @@ export function useConnectionController() {
     [connectPairingUrlMutation],
   );
   const removeEnvironment = useCallback(
-    (environmentId: EnvironmentId) => removeEnvironmentMutation(environmentId),
+    (environmentId: EnvironmentId) =>
+      removeEnvironmentWithBestEffortUnregister({
+        unregister: () => unregisterAgentAwarenessEnvironmentBeforeRemoval(environmentId),
+        remove: () => removeEnvironmentMutation(environmentId),
+      }),
     [removeEnvironmentMutation],
   );
   const retryEnvironment = useCallback(

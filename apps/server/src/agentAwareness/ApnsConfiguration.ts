@@ -1,3 +1,5 @@
+import * as NodeCrypto from "node:crypto";
+
 import type { ApnsConfig } from "./ApnsClient.ts";
 
 export type ApnsConfigurationState =
@@ -29,6 +31,13 @@ export async function readApnsConfiguration(
   try {
     const privateKey = await readTextFile(privateKeyPath);
     if (!privateKey.trim()) {
+      return { capability: "unavailable", reason: "apns-not-configured" };
+    }
+    const parsedKey = NodeCrypto.createPrivateKey(privateKey);
+    if (
+      parsedKey.asymmetricKeyType !== "ec" ||
+      parsedKey.asymmetricKeyDetails?.namedCurve !== "prime256v1"
+    ) {
       return { capability: "unavailable", reason: "apns-not-configured" };
     }
     return {

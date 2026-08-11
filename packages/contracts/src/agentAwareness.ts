@@ -25,11 +25,17 @@ export type AgentAwarenessUnregistrationInput = typeof AgentAwarenessUnregistrat
 export const AgentAwarenessCapability = Schema.Literals(["available", "unavailable"]);
 export type AgentAwarenessCapability = typeof AgentAwarenessCapability.Type;
 
-export const AgentAwarenessRegistrationResult = Schema.Struct({
-  capability: AgentAwarenessCapability,
-  registeredAt: Schema.optional(IsoDateTime),
-  reason: Schema.optional(Schema.Literal("apns-not-configured")),
-});
+export const AgentAwarenessRegistrationResult = Schema.Union([
+  Schema.Struct({
+    capability: Schema.Literal("available"),
+    registeredAt: Schema.optional(IsoDateTime),
+  }),
+  Schema.Struct({
+    capability: Schema.Literal("unavailable"),
+    registeredAt: Schema.optional(IsoDateTime),
+    reason: Schema.Literal("apns-not-configured"),
+  }),
+]);
 export type AgentAwarenessRegistrationResult = typeof AgentAwarenessRegistrationResult.Type;
 
 export class AgentAwarenessRegistrationError extends Schema.TaggedErrorClass<AgentAwarenessRegistrationError>()(

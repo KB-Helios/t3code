@@ -14,6 +14,7 @@ export interface AgentAwarenessRegistrationDependencies {
   readonly readDeviceToken: () => Promise<string | null>;
   readonly subscribeDeviceToken: (listener: (token: string) => void) => Subscription;
   readonly subscribePushToStartToken: (listener: (token: string) => void) => Subscription;
+  readonly endLiveActivities: () => Promise<void>;
   readonly register: (
     environmentId: EnvironmentId,
     input: AgentAwarenessRegistrationInput,
@@ -34,19 +35,23 @@ export function createAgentAwarenessRegistrationManager(
   let preferences = { notificationsEnabled: false, liveActivitiesEnabled: true };
   let pending = Promise.resolve();
 
-  const payload = async (): Promise<AgentAwarenessRegistrationInput> => ({
+  const payload = async (
+    registrationPreferences = preferences,
+  ): Promise<AgentAwarenessRegistrationInput> => ({
     installationId: await dependencies.installationId(),
-    ...(deviceToken && preferences.notificationsEnabled ? { deviceToken } : {}),
+    ...(deviceToken && registrationPreferences.notificationsEnabled ? { deviceToken } : {}),
     ...(pushToStartToken ? { pushToStartToken } : {}),
-    ...(liveActivityToken ? { liveActivityToken } : {}),
+    ...(liveActivityToken && registrationPreferences.liveActivitiesEnabled
+      ? { liveActivityToken }
+      : {}),
     preferences: {
-      notificationsEnabled: preferences.notificationsEnabled && deviceToken !== null,
-      liveActivitiesEnabled: preferences.liveActivitiesEnabled,
+      notificationsEnabled: registrationPreferences.notificationsEnabled && deviceToken !== null,
+      liveActivitiesEnabled: registrationPreferences.liveActivitiesEnabled,
     },
   });
 
-  const registerAll = async () => {
-    const input = await payload();
+  const registerAll = async (registrationPreferences = preferences) => {
+    const input = await payload(registrationPreferences);
     await Promise.all(
       [...environments].map((environmentId) => dependencies.register(environmentId, input)),
     );
@@ -72,10 +77,6 @@ export function createAgentAwarenessRegistrationManager(
       const added = [...next].filter((environmentId) => !environments.has(environmentId));
       for (const environmentId of removed) environments.delete(environmentId);
       for (const environmentId of added) environments.add(environmentId);
-      const installationId = await dependencies.installationId();
-      await Promise.all(
-        removed.map((environmentId) => dependencies.unregister(environmentId, { installationId })),
-      );
       if (added.length === 0) return;
       if (deviceToken === null && preferences.notificationsEnabled) {
         deviceToken = await dependencies.readDeviceToken();
@@ -84,14 +85,19 @@ export function createAgentAwarenessRegistrationManager(
       await Promise.all(added.map((environmentId) => dependencies.register(environmentId, input)));
     },
     setLiveActivityToken(token: string | null) {
-      liveActivityToken = token?.trim() || null;
+      liveActivityToken = preferences.liveActivitiesEnabled ? token?.trim() || null : null;
       enqueue(registerAll);
     },
     setPreferences(next: typeof preferences) {
+      const previous = preferences;
       preferences = next;
       enqueue(async () => {
+        if (previous.liveActivitiesEnabled && !next.liveActivitiesEnabled) {
+          await dependencies.endLiveActivities();
+          liveActivityToken = null;
+        }
         deviceToken = next.notificationsEnabled ? await dependencies.readDeviceToken() : null;
-        await registerAll();
+        await registerAll(next);
       });
     },
     idle: () => pending,
@@ -100,4 +106,16 @@ export function createAgentAwarenessRegistrationManager(
       pushToStartSubscription.remove();
     },
   };
+}
+
+export async function removeEnvironmentWithBestEffortUnregister(input: {
+  readonly unregister: () => Promise<unknown>;
+  readonly remove: () => Promise<unknown>;
+}): Promise<void> {
+  try {
+    await input.unregister();
+  } catch {
+    // Explicit removal must still finish when the environment is unreachable.
+  }
+  await input.remove();
 }
