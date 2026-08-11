@@ -44,8 +44,6 @@ import {
 } from "../../state/use-composer-drafts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
 import { buildModelMenuActions, resolveSelectableModelSelection } from "../../lib/modelOptions";
-import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
-import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/localLiveActivity";
 import { enqueueThreadOutboxMessage, removeThreadOutboxMessage } from "../../state/thread-outbox";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
@@ -850,10 +848,6 @@ export function NewTaskDraftScreen(props: {
     }
 
     flow.setSubmitting(true);
-    armAgentAwarenessLiveActivityForLocalWork({
-      threadTitle: deriveThreadTitleFromPrompt(initialMessageText),
-      projectTitle: selectedProject.title,
-    });
     const result = await createProjectThread({
       project: selectedProject,
       modelSelection,
