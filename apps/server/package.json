@@ -1,13 +1,15 @@
 {
   "name": "t3",
   "version": "0.0.32",
+  "description": "NorthBridgeCode self-hosted server and CLI.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/KB-Helios/t3code",
     "directory": "apps/server"
   },
   "bin": {
+    "northbridgecode": "./dist/bin.mjs",
     "t3": "./dist/bin.mjs"
   },
   "files": [

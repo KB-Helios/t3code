@@ -1,10 +1,12 @@
-const DEFAULT_MARKETING_SITE_URL = "https://t3.codes";
+const REPOSITORY_LICENSE_URL = "https://github.com/KB-Helios/t3code/blob/main/LICENSE";
+const REPOSITORY_SECURITY_URL = "https://github.com/KB-Helios/t3code/security";
 
-function resolveMarketingSiteUrl(override: string | undefined): URL {
+function resolveMarketingSiteUrl(override: string | undefined): URL | null {
+  if (!override?.trim()) return null;
   try {
-    const url = new URL(override?.trim() || DEFAULT_MARKETING_SITE_URL);
+    const url = new URL(override.trim());
     if (url.protocol !== "https:" && url.protocol !== "http:") {
-      return new URL(DEFAULT_MARKETING_SITE_URL);
+      return null;
     }
 
     url.search = "";
@@ -12,20 +14,29 @@ function resolveMarketingSiteUrl(override: string | undefined): URL {
     url.pathname = `${url.pathname.replace(/\/+$/, "")}/`;
     return url;
   } catch {
-    return new URL(DEFAULT_MARKETING_SITE_URL);
+    return null;
   }
 }
 
 const MARKETING_SITE_URL = resolveMarketingSiteUrl(process.env.EXPO_PUBLIC_MARKETING_SITE_URL);
 
-function marketingSiteDocumentUrl(path: string): string {
-  return new URL(path, MARKETING_SITE_URL).toString();
+function marketingSiteDocumentUrl(path: string, fallback: string): string {
+  return MARKETING_SITE_URL === null ? fallback : new URL(path, MARKETING_SITE_URL).toString();
 }
 
-export const PRIVACY_POLICY_URL = marketingSiteDocumentUrl("privacy-policy");
-export const SECURITY_POLICY_URL = marketingSiteDocumentUrl("security-policy");
-export const TERMS_OF_SERVICE_URL = marketingSiteDocumentUrl("terms-of-service");
-export const LEGAL_URL = marketingSiteDocumentUrl("legal");
+export const PRIVACY_POLICY_URL = marketingSiteDocumentUrl(
+  "privacy-policy",
+  REPOSITORY_LICENSE_URL,
+);
+export const SECURITY_POLICY_URL = marketingSiteDocumentUrl(
+  "security-policy",
+  REPOSITORY_SECURITY_URL,
+);
+export const TERMS_OF_SERVICE_URL = marketingSiteDocumentUrl(
+  "terms-of-service",
+  REPOSITORY_LICENSE_URL,
+);
+export const LEGAL_URL = marketingSiteDocumentUrl("legal", REPOSITORY_LICENSE_URL);
 
 export const ALLOWED_LEGAL_DOCUMENT_URLS = [
   LEGAL_URL,

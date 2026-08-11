@@ -19,6 +19,7 @@
       "corepack": true,
       "env": {
         "APP_VARIANT": "preview",
+        "NORTHBRIDGECODE_DISTRIBUTION_BUILD": "1",
         "NODE_OPTIONS": "--max-old-space-size=4096"
       },
       "channel": "preview",
@@ -30,6 +31,7 @@
       "env": {
         "APP_VARIANT": "preview",
         "MOBILE_VERSION_POLICY": "fingerprint",
+        "NORTHBRIDGECODE_DISTRIBUTION_BUILD": "1",
         "NODE_OPTIONS": "--max-old-space-size=4096"
       },
       "channel": "preview",
@@ -44,6 +46,7 @@
       "corepack": true,
       "env": {
         "APP_VARIANT": "production",
+        "NORTHBRIDGECODE_DISTRIBUTION_BUILD": "1",
         "NODE_OPTIONS": "--max-old-space-size=4096"
       },
       "channel": "production",
@@ -53,9 +56,6 @@
   },
   "submit": {
     "production": {
-      "ios": {
-        "ascAppId": "6787819824"
-      },
       "android": {
         "track": "internal"
       }

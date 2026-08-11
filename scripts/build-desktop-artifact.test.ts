@@ -79,9 +79,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
   });
 
-  it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Alpha)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+  it("keeps the public desktop product name stable across release channels", () => {
+    assert.equal(resolveDesktopProductName("0.0.17"), "NorthBridgeCode");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "NorthBridgeCode");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -307,41 +307,35 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("applies platform-specific packaging to the build config", () =>
     Effect.gen(function* () {
-      const mac = yield* createBuildConfig(
-        "mac",
-        "dmg",
-        "1.2.3",
-        true,
-        false,
-        undefined,
-      );
-      const linux = yield* createBuildConfig(
-        "linux",
-        "AppImage",
-        "1.2.3",
-        false,
-        false,
-        undefined,
-      );
-      const win = yield* createBuildConfig(
-        "win",
-        "nsis",
-        "1.2.3",
-        false,
-        false,
-        undefined,
-      );
+      const mac = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined);
+      const linux = yield* createBuildConfig("linux", "AppImage", "1.2.3", false, false, undefined);
+      const win = yield* createBuildConfig("win", "nsis", "1.2.3", false, false, undefined);
 
       assert.notProperty(mac, "asarUnpack");
       assert.notProperty(mac.mac as Record<string, unknown>, "entitlements");
       assert.notProperty(mac.mac as Record<string, unknown>, "provisioningProfile");
       assert.notProperty(linux, "asarUnpack");
       assert.deepStrictEqual(win.asarUnpack, WINDOWS_ASAR_UNPACK);
-      // Linux must register the renderer schemes so the generated .desktop
-      // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
-      assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+      assert.equal(mac.appId, "com.kbhelios.northbridgecode");
+      assert.equal(mac.productName, "NorthBridgeCode");
+      assert.equal(mac.artifactName, "NorthBridgeCode-${version}-${arch}.${ext}");
+      assert.deepStrictEqual((mac.mac as Record<string, unknown>).protocols, [
+        {
+          name: "NorthBridgeCode",
+          schemes: ["northbridgecode", "northbridgecode-dev", "t3code", "t3code-dev"],
+        },
       ]);
+      // Linux must register the renderer schemes so the generated .desktop
+      // entry advertises the new scheme while retaining legacy deep links.
+      assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
+        {
+          name: "NorthBridgeCode",
+          schemes: ["northbridgecode", "northbridgecode-dev", "t3code", "t3code-dev"],
+        },
+      ]);
+      assert.equal((linux.linux as Record<string, unknown>).executableName, "northbridgecode");
+      assert.deepNestedPropertyVal(linux, "linux.desktop.entry.StartupWMClass", "northbridgecode");
+      assert.deepNestedPropertyVal(win, "nsis.guid", "e9197887-efb3-55e0-985e-d6d3b5dd594a");
       for (const config of [mac, linux, win]) {
         assert.deepStrictEqual(config.electronLanguages, DESKTOP_ELECTRON_LANGUAGES);
         assert.deepStrictEqual(config.files, DESKTOP_FILE_EXCLUSIONS);
@@ -391,14 +385,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig(
-        "win",
-        "nsis",
-        "1.2.3",
-        false,
-        false,
-        undefined,
-      );
+      const config = yield* createBuildConfig("win", "nsis", "1.2.3", false, false, undefined);
 
       const win = config.win as Record<string, unknown>;
       assert.equal(win.icon, "icon.ico");

@@ -13,8 +13,8 @@ export const T3ProjectFileFromJson = fromLenientJson(T3ProjectFile);
 /**
  * Build the publishable JSON Schema document for `t3.json` (draft 2020-12).
  *
- * Served from the marketing site at {@link T3_PROJECT_FILE_SCHEMA_URL} so
- * editors get LSP support via a `$schema` reference.
+ * Retains the established compatibility endpoint at {@link T3_PROJECT_FILE_SCHEMA_URL} so
+ * existing editor integrations keep LSP support via a `$schema` reference.
  */
 export function buildT3ProjectFileJsonSchema(): Record<string, unknown> {
   const document = Schema.toJsonSchemaDocument(T3ProjectFile);

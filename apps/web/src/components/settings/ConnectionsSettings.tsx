@@ -668,9 +668,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
             )}
             <DialogPopup className="max-w-md">
               <DialogHeader>
-                <DialogTitle>
-                  {isRevealValueUrl ? "Pairing link" : "Pairing code"}
-                </DialogTitle>
+                <DialogTitle>{isRevealValueUrl ? "Pairing link" : "Pairing code"}</DialogTitle>
                 <DialogDescription>
                   {isRevealValueUrl
                     ? "Clipboard copy is unavailable here. Open or manually copy this full pairing URL on the device you want to connect."
@@ -1316,9 +1314,9 @@ function SavedBackendListRow({
     environment.entry.profile.value._tag === "SshConnectionProfile"
       ? environment.entry.profile.value.target
       : null;
-  const metadataBits = [
-    sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
-  ].filter((value): value is string => value !== null);
+  const metadataBits = [sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null].filter(
+    (value): value is string => value !== null,
+  );
 
   // The WSL backend is a desktop-managed local backend (it surfaces as a bearer
   // environment whose connection id is prefixed "local:"), not a remote
@@ -2633,7 +2631,7 @@ export function ConnectionsSettings() {
         {desktopWslState.enabled ? (
           <SettingsRow
             title="WSL only"
-            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. T3 Code restarts when you change this."
+            description="Stop the Windows backend and run only the WSL backend. Useful if you develop entirely inside WSL and don't want a second backend process. NorthBridgeCode restarts when you change this."
             className="bg-muted/20 pl-7 sm:pl-8"
             control={
               <Switch
@@ -2771,17 +2769,17 @@ export function ConnectionsSettings() {
                 title="Server update available"
                 description={
                   <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button type="button" className="w-fit cursor-help rounded-sm text-left">
-                            Update to match this client.
-                          </button>
-                        }
-                      />
-                      <TooltipPopup side="top">
-                        {primaryVersionMismatch.serverVersion} <span aria-hidden="true">→</span>{" "}
-                        {primaryVersionMismatch.clientVersion}
-                      </TooltipPopup>
+                    <TooltipTrigger
+                      render={
+                        <button type="button" className="w-fit cursor-help rounded-sm text-left">
+                          Update to match this client.
+                        </button>
+                      }
+                    />
+                    <TooltipPopup side="top">
+                      {primaryVersionMismatch.serverVersion} <span aria-hidden="true">→</span>{" "}
+                      {primaryVersionMismatch.clientVersion}
+                    </TooltipPopup>
                   </Tooltip>
                 }
                 control={
@@ -2802,9 +2800,7 @@ export function ConnectionsSettings() {
                 {renderWslRow()}
               </>
             ) : (
-              <>
-                {renderDisabledNetworkAccessRow()}
-              </>
+              <>{renderDisabledNetworkAccessRow()}</>
             )}
           </SettingsSection>
 
@@ -2847,8 +2843,8 @@ export function ConnectionsSettings() {
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {pendingDesktopServerExposureMode === "network-accessible"
-                    ? "T3 Code will restart to expose this environment over the network."
-                    : "T3 Code will restart and limit this environment back to this machine."}
+                    ? "NorthBridgeCode will restart to expose this environment over the network."
+                    : "NorthBridgeCode will restart and limit this environment back to this machine."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -2906,15 +2902,15 @@ export function ConnectionsSettings() {
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "T3 Code will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in T3 Code until you re-enable WSL."
+                      ? "NorthBridgeCode will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in NorthBridgeCode until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
-                      ? "T3 Code will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
+                      ? "NorthBridgeCode will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
                         ? "Run the WSL backend alongside the Windows one, or stop the Windows backend and use only WSL? You can change this later from Settings."
                         : pendingWslChange?.nextValue
-                          ? "T3 Code will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
-                          : "T3 Code will restart and bring the Windows backend back up alongside WSL."}
+                          ? "NorthBridgeCode will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                          : "NorthBridgeCode will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3000,7 +2996,7 @@ export function ConnectionsSettings() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Disable Tailscale HTTPS?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  T3 Code will restart the local backend without Tailscale Serve.
+                  NorthBridgeCode will restart the local backend without Tailscale Serve.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -3038,8 +3034,8 @@ export function ConnectionsSettings() {
               <DialogHeader>
                 <DialogTitle>Set up Tailscale HTTPS?</DialogTitle>
                 <DialogDescription>
-                  T3 Code will restart the local backend with Tailscale Serve enabled and ask
-                  Tailscale to proxy HTTPS traffic to this backend.
+                  NorthBridgeCode will restart the local backend with Tailscale Serve enabled and
+                  ask Tailscale to proxy HTTPS traffic to this backend.
                 </DialogDescription>
               </DialogHeader>
               <DialogPanel className="space-y-4">

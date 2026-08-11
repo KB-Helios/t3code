@@ -15,8 +15,8 @@ import { runServerCommand, serveCommand, startCommand } from "./cli/server.ts";
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
 export const makeCli = () =>
-  Command.make("t3", { ...sharedServerCommandFlags }).pipe(
-    Command.withDescription("Run the T3 Code server."),
+  Command.make("northbridgecode", { ...sharedServerCommandFlags }).pipe(
+    Command.withDescription("Run the NorthBridgeCode server."),
     Command.withHandler((flags) => runServerCommand(flags)),
     Command.withSubcommands([startCommand, serveCommand, pairCommand, authCommand, projectCommand]),
   );

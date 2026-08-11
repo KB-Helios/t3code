@@ -1,6 +1,6 @@
 # Remote Access
 
-T3 Code clients connect directly to a T3 Code server over HTTP and WebSocket. You can use a LAN
+NorthBridgeCode clients connect directly to a NorthBridgeCode server over HTTP and WebSocket. You can use a LAN
 address, Tailscale, or an SSH-launched server. Pairing exchanges a short-lived one-time token for a
 scoped session credential.
 
@@ -28,7 +28,7 @@ advertised endpoint. LAN endpoints work for devices on the same network. Tailsca
 for devices on the same tailnet and avoid exposing the server to the public internet.
 
 Tailscale Serve can provide HTTPS when the consuming browser requires a secure origin. Follow the
-endpoint shown by T3 Code rather than configuring a separate proxy by hand.
+endpoint shown by NorthBridgeCode rather than configuring a separate proxy by hand.
 
 ## Headless server
 
@@ -39,11 +39,11 @@ npx t3 serve --host 0.0.0.0
 ```
 
 Protect network access with the pairing flow and restrict the host firewall to the networks that
-need it. For a persistent Linux service, see [Running T3 Code in the Background](./background-service.md).
+need it. For a persistent Linux service, see [Running NorthBridgeCode in the Background](./background-service.md).
 
 ## SSH launch
 
-Desktop can save an SSH profile and launch a remote T3 server through that host. SSH remains the
+Desktop can save an SSH profile and launch a remote NorthBridgeCode server through that host. SSH remains the
 transport for starting and reaching the server; the client still uses the same scoped Bearer session
 credentials after pairing.
 

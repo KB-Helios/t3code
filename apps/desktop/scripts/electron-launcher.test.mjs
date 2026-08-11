@@ -52,18 +52,18 @@ describe("electron development launcher", () => {
 
   it("keeps the native Electron executable name inside the branded macOS bundle", () => {
     const paths = resolveMacLauncherPaths(
-      "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app",
-      "T3 Code (Dev)",
+      "/repo/apps/desktop/.electron-runtime/NorthBridgeCode (Dev).app",
+      "NorthBridgeCode (Dev)",
     );
 
-    assert.equal(paths.launcherExecutableName, "T3 Code (Dev) Launcher");
+    assert.equal(paths.launcherExecutableName, "NorthBridgeCode (Dev) Launcher");
     assert.equal(
-      paths.launcherBinaryPath,
-      "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/T3 Code (Dev) Launcher",
+      paths.launcherBinaryPath.replaceAll("\\", "/"),
+      "/repo/apps/desktop/.electron-runtime/NorthBridgeCode (Dev).app/Contents/MacOS/NorthBridgeCode (Dev) Launcher",
     );
     assert.equal(
-      paths.runtimeElectronBinaryPath,
-      "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron",
+      paths.runtimeElectronBinaryPath.replaceAll("\\", "/"),
+      "/repo/apps/desktop/.electron-runtime/NorthBridgeCode (Dev).app/Contents/MacOS/Electron",
     );
 
     const script = makeDevelopmentLauncherScript({
@@ -73,8 +73,8 @@ describe("electron development launcher", () => {
       environment: {},
     });
     assert.include(
-      script,
-      "exec '/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron'",
+      script.replaceAll("\\", "/"),
+      "exec '/repo/apps/desktop/.electron-runtime/NorthBridgeCode (Dev).app/Contents/MacOS/Electron'",
     );
     assert.notInclude(script, "node_modules/electron");
   });

@@ -155,7 +155,7 @@ export function makeAgentAwarenessAggregate(input: {
         ? "Agent work failed"
         : "Agent work completed";
   return {
-    title: truncateText("T3 Code", MAX_SUMMARY_TEXT_LENGTH),
+    title: truncateText("NorthBridgeCode", MAX_SUMMARY_TEXT_LENGTH),
     subtitle: truncateText(subtitle, MAX_SUMMARY_TEXT_LENGTH),
     activeCount: activeStates.length,
     updatedAt,

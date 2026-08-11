@@ -81,7 +81,7 @@ describe("APNs client", () => {
           "attributes-type": "LiveActivityAttributes",
           attributes: {},
           "input-push-token": 1,
-          alert: { title: "T3 Code", body: "Agent work in progress" },
+          alert: { title: "NorthBridgeCode", body: "Agent work in progress" },
           "content-state": state,
           "stale-date": 700,
         },

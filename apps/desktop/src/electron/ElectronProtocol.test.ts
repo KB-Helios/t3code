@@ -23,6 +23,19 @@ describe("ElectronProtocol", () => {
     unhandleMock.mockReset();
   });
 
+  it("keeps renderer origins stable while exposing NorthBridgeCode OS aliases", () => {
+    assert.equal(ElectronProtocol.getDesktopOrigin(false), "t3code://app");
+    assert.equal(ElectronProtocol.getDesktopOrigin(true), "t3code-dev://app");
+    assert.deepEqual(ElectronProtocol.getDesktopExternalSchemes(false), [
+      "northbridgecode",
+      "t3code",
+    ]);
+    assert.deepEqual(ElectronProtocol.getDesktopExternalSchemes(true), [
+      "northbridgecode-dev",
+      "t3code-dev",
+    ]);
+  });
+
   it.effect("proxies the stable renderer origin to the current app server", () =>
     Effect.gen(function* () {
       let handler: ((request: Request) => Promise<Response>) | undefined;
@@ -203,11 +216,7 @@ describe("ElectronProtocol", () => {
       }),
     );
 
-    assert.deepEqual(directives["script-src"], [
-      "'self'",
-      "'unsafe-inline'",
-      "'wasm-unsafe-eval'",
-    ]);
+    assert.deepEqual(directives["script-src"], ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"]);
     assert.deepEqual(directives["connect-src"], ["'self'", "http:", "https:", "ws:", "wss:"]);
     assert.deepEqual(directives["img-src"], [
       "'self'",
