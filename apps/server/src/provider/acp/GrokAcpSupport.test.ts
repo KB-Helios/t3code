@@ -17,10 +17,9 @@ describe("resolveGrokAcpBaseModelId", () => {
 });
 
 describe("buildGrokAcpSpawnInput", () => {
-  it("passes the T3 Code referrer through Grok OAuth env", () => {
+  it("does not set GROK_OAUTH2_REFERRER=t3code by default", () => {
     const spawn = buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project", {
       XAI_API_KEY: "secret",
-      GROK_OAUTH2_REFERRER: "other-client",
     });
 
     expect(spawn).toEqual({
@@ -29,8 +28,20 @@ describe("buildGrokAcpSpawnInput", () => {
       cwd: "/tmp/project",
       env: {
         XAI_API_KEY: "secret",
-        GROK_OAUTH2_REFERRER: "t3code",
       },
+    });
+    expect(spawn.env).not.toHaveProperty("GROK_OAUTH2_REFERRER");
+  });
+
+  it("preserves a caller-supplied GROK_OAUTH2_REFERRER", () => {
+    const spawn = buildGrokAcpSpawnInput({ binaryPath: "/usr/local/bin/grok" }, "/tmp/project", {
+      XAI_API_KEY: "secret",
+      GROK_OAUTH2_REFERRER: "other-client",
+    });
+
+    expect(spawn.env).toEqual({
+      XAI_API_KEY: "secret",
+      GROK_OAUTH2_REFERRER: "other-client",
     });
   });
 });
