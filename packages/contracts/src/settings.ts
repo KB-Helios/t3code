@@ -9,7 +9,13 @@ import {
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
-import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { AuthProfile, EndpointProfile } from "./endpointProfile.ts";
+import {
+  AuthProfileId,
+  EndpointProfileId,
+  ProviderInstanceConfig,
+  ProviderInstanceId,
+} from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -608,6 +614,16 @@ export const ServerSettings = Schema.Struct({
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  // Reusable endpoint profiles (base URL, protocol, model discovery).
+  // Whole-map replacement on patch; keyed by `EndpointProfileId`.
+  endpointProfiles: Schema.Record(EndpointProfileId, EndpointProfile).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  // Reusable auth profiles (method + metadata only; secrets stay redacted).
+  // Whole-map replacement on patch; keyed by `AuthProfileId`.
+  authProfiles: Schema.Record(AuthProfileId, AuthProfile).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
@@ -749,6 +765,9 @@ export const ServerSettingsPatch = Schema.Struct({
   // patches risk leaving driver-specific config in a half-merged state.
   // The web UI sends a fully-formed map every time it edits this field.
   providerInstances: Schema.optionalKey(Schema.Record(ProviderInstanceId, ProviderInstanceConfig)),
+  // Whole-map replacements for endpoint/auth profiles (same rule as providerInstances).
+  endpointProfiles: Schema.optionalKey(Schema.Record(EndpointProfileId, EndpointProfile)),
+  authProfiles: Schema.optionalKey(Schema.Record(AuthProfileId, AuthProfile)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

@@ -167,6 +167,52 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
+describe("ServerSettings.endpointProfiles / authProfiles", () => {
+  it("defaults both maps to empty records so legacy configs still decode", () => {
+    expect(DEFAULT_SERVER_SETTINGS.endpointProfiles).toEqual({});
+    expect(DEFAULT_SERVER_SETTINGS.authProfiles).toEqual({});
+    const decoded = decodeServerSettings({});
+    expect(decoded.endpointProfiles).toEqual({});
+    expect(decoded.authProfiles).toEqual({});
+  });
+
+  it("round-trips an OmniRouter-shaped endpoint and leaves unknown driver envelopes intact", () => {
+    const decoded = decodeServerSettings({
+      endpointProfiles: {
+        omnirouter_prod: {
+          name: "OmniRouter",
+          baseUrl: "https://router.example/v1",
+          protocol: "openai-responses",
+          modelDiscovery: { type: "models-endpoint" },
+        },
+      },
+      authProfiles: {
+        omnirouter_kevin: {
+          name: "Kevin OmniRouter",
+          method: "bearer-env",
+          envKey: "OMNIROUTER_TOKEN",
+          secretRedacted: true,
+        },
+      },
+      providerInstances: {
+        codex_work: {
+          driver: "codex",
+          endpointProfileId: "omnirouter_prod",
+          authProfileId: "omnirouter_kevin",
+          config: { binaryPath: "codex" },
+        },
+        ollama: { driver: "ollama", config: { host: "http://127.0.0.1:11434" } },
+      },
+    });
+    expect(
+      decoded.providerInstances[ProviderInstanceId.make("codex_work")]?.endpointProfileId,
+    ).toBe("omnirouter_prod");
+    expect(decoded.providerInstances[ProviderInstanceId.make("ollama")]?.driver).toBe("ollama");
+    expect(decoded.endpointProfiles.omnirouter_prod?.protocol).toBe("openai-responses");
+    expect(decoded.authProfiles.omnirouter_kevin?.method).toBe("bearer-env");
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults start-from-origin on for legacy configs", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);
@@ -233,6 +279,33 @@ describe("ServerSettingsPatch.providerInstances", () => {
     });
     const ollamaId = ProviderInstanceId.make("ollama_local");
     expect(patch.providerInstances?.[ollamaId]?.driver).toBe("ollama");
+  });
+});
+
+describe("ServerSettingsPatch.endpointProfiles / authProfiles", () => {
+  it("treats endpointProfiles and authProfiles as optional whole-map replacements", () => {
+    const empty = decodeServerSettingsPatch({});
+    expect(empty.endpointProfiles).toBeUndefined();
+    expect(empty.authProfiles).toBeUndefined();
+
+    const patch = decodeServerSettingsPatch({
+      endpointProfiles: {
+        omnirouter_prod: {
+          name: "OmniRouter",
+          baseUrl: "https://router.example/v1",
+          protocol: "openai-responses",
+        },
+      },
+      authProfiles: {
+        omnirouter_kevin: {
+          name: "Kevin OmniRouter",
+          method: "bearer-env",
+          envKey: "OMNIROUTER_TOKEN",
+        },
+      },
+    });
+    expect(patch.endpointProfiles?.omnirouter_prod?.baseUrl).toBe("https://router.example/v1");
+    expect(patch.authProfiles?.omnirouter_kevin?.method).toBe("bearer-env");
   });
 });
 
