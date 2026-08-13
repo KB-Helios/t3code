@@ -768,6 +768,9 @@ export const ServerSettingsPatch = Schema.Struct({
   // Whole-map replacements for endpoint/auth profiles (same rule as providerInstances).
   endpointProfiles: Schema.optionalKey(Schema.Record(EndpointProfileId, EndpointProfile)),
   authProfiles: Schema.optionalKey(Schema.Record(AuthProfileId, AuthProfile)),
+  // Write-only side channel. Stripped before settings.json is written;
+  // secret bytes live in ServerSecretStore as `auth-profile/<id>`.
+  authProfileSecrets: Schema.optionalKey(Schema.Record(AuthProfileId, Schema.String)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

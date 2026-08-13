@@ -45,12 +45,20 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
+import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  environmentWithResolvedAuth,
+  missingEndpointProfileMessage,
+  resolveProviderConnection,
+  type ResolvedProviderConnection,
+} from "../endpoint/resolveProviderConnection.ts";
 import { buildUnavailableProviderSnapshot } from "../unavailableProviderSnapshot.ts";
 import {
   ProviderInstanceRegistry,
@@ -71,6 +79,7 @@ interface LiveEntry {
   readonly instance: ProviderInstance;
   readonly scope: Scope.Closeable;
   readonly entry: ProviderInstanceConfig;
+  readonly connection: ResolvedProviderConnection;
 }
 
 /**
@@ -99,6 +108,38 @@ const decodedConfigEnabled = (config: unknown): boolean | undefined => {
   }
   const enabled = (config as { readonly enabled?: unknown }).enabled;
   return typeof enabled === "boolean" ? enabled : undefined;
+};
+
+const emptyProfileSettings = { endpointProfiles: {}, authProfiles: {} } as const;
+
+const loadSettingsForConnection = Effect.gen(function* () {
+  const settingsService = yield* Effect.serviceOption(ServerSettingsService);
+  return yield* Option.match(settingsService, {
+    onNone: () => Effect.succeed(undefined),
+    onSome: (service) => service.getSettings.pipe(Effect.orElseSucceed(() => undefined)),
+  });
+});
+
+const applyConnectionWarning = (
+  instance: ProviderInstance,
+  warning: string | undefined,
+): ProviderInstance => {
+  if (warning === undefined) {
+    return instance;
+  }
+  const stamp = (snapshot: ServerProvider): ServerProvider => ({
+    ...snapshot,
+    message: snapshot.message ?? warning,
+  });
+  return {
+    ...instance,
+    snapshot: {
+      ...instance.snapshot,
+      getSnapshot: instance.snapshot.getSnapshot.pipe(Effect.map(stamp)),
+      refresh: instance.snapshot.refresh.pipe(Effect.map(stamp)),
+      streamChanges: instance.snapshot.streamChanges.pipe(Stream.map(stamp)),
+    },
+  };
 };
 
 /**
@@ -165,14 +206,28 @@ const buildEntry = <R>(input: {
     // finalizer is a no-op because `Scope.close` is idempotent.
     yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void).pipe(Effect.ignore));
 
+    const settings = yield* loadSettingsForConnection;
+    const connection = yield* resolveProviderConnection(settings ?? emptyProfileSettings, entry);
+    const danglingEndpointWarning =
+      entry.endpointProfileId !== undefined && connection.endpoint === undefined
+        ? missingEndpointProfileMessage(entry.endpointProfileId)
+        : undefined;
+    if (danglingEndpointWarning !== undefined) {
+      yield* Effect.logWarning(danglingEndpointWarning, {
+        instanceId: rawInstanceId,
+        endpointProfileId: entry.endpointProfileId,
+      });
+    }
+
     const createResult = yield* driver
       .create({
         instanceId,
         displayName: entry.displayName,
         accentColor: entry.accentColor,
-        environment: entry.environment ?? [],
+        environment: environmentWithResolvedAuth(entry.environment, connection),
         enabled: entry.enabled ?? decodedConfigEnabled(typedConfig) ?? true,
         config: typedConfig,
+        connection,
       })
       .pipe(Effect.provideService(Scope.Scope, childScope), Effect.result);
     if (createResult._tag === "Failure") {
@@ -197,9 +252,10 @@ const buildEntry = <R>(input: {
     return {
       kind: "live" as const,
       live: {
-        instance: createResult.success,
+        instance: applyConnectionWarning(createResult.success, danglingEndpointWarning),
         scope: childScope,
         entry,
+        connection,
       },
     };
   });
@@ -222,6 +278,8 @@ const makeReconcile = <R>(input: {
       const nextKeys = new Set<ProviderInstanceId>(
         nextRaw.map(([raw]) => ProviderInstanceId.make(raw)),
       );
+      const settings = yield* loadSettingsForConnection;
+      const profileSettings = settings ?? emptyProfileSettings;
 
       // 1. Close scopes for instances that disappeared or whose config
       //    changed. Do this BEFORE creating replacements so ids map 1-to-1
@@ -234,7 +292,15 @@ const makeReconcile = <R>(input: {
           continue;
         }
         const nextEntry = configMap[instanceId];
-        if (nextEntry !== undefined && !entryEqual(live.entry, nextEntry)) {
+        if (nextEntry === undefined) {
+          continue;
+        }
+        if (!entryEqual(live.entry, nextEntry)) {
+          replacedIds.add(instanceId);
+          continue;
+        }
+        const nextConnection = yield* resolveProviderConnection(profileSettings, nextEntry);
+        if (!Equal.equals(live.connection, nextConnection)) {
           replacedIds.add(instanceId);
         }
       }
