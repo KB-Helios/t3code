@@ -32,6 +32,7 @@ import {
   buildServerProvider,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
+import type { ResolvedProviderConnection } from "../endpoint/resolveProviderConnection.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
 import packageJson from "../../../package.json" with { type: "json" };
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
@@ -471,7 +472,20 @@ const makePendingCodexProvider = (
     });
   });
 
-function accountProbeStatus(account: CodexAppServerProviderSnapshot["account"]): {
+export function endpointAuthSuppressesCodexLogin(
+  connection: ResolvedProviderConnection | undefined,
+): connection is ResolvedProviderConnection & {
+  readonly endpoint: NonNullable<ResolvedProviderConnection["endpoint"]>;
+} {
+  if (connection?.endpoint === undefined) return false;
+  const method = connection.auth?.method;
+  return method !== "oauth-browser" && method !== "oauth-device";
+}
+
+function accountProbeStatus(
+  account: CodexAppServerProviderSnapshot["account"],
+  connection?: ResolvedProviderConnection,
+): {
   readonly status: Exclude<ServerProviderState, "disabled">;
   readonly auth: ServerProvider["auth"];
   readonly message?: string;
@@ -490,6 +504,15 @@ function accountProbeStatus(account: CodexAppServerProviderSnapshot["account"]):
   }
 
   if (account.requiresOpenaiAuth) {
+    if (endpointAuthSuppressesCodexLogin(connection)) {
+      return {
+        status: "ready",
+        auth: {
+          status: "authenticated",
+          label: connection.endpoint.name,
+        },
+      };
+    }
     return {
       status: "error",
       auth: { status: "unauthenticated" },
@@ -515,6 +538,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
   > = probeCodexAppServerProvider,
   environment?: NodeJS.ProcessEnv,
+  connection?: ResolvedProviderConnection,
 ): Effect.fn.Return<
   ServerProviderDraft,
   ServerSettingsError,
@@ -593,7 +617,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   }
 
   const snapshot = probeResult.success.value;
-  const accountStatus = accountProbeStatus(snapshot.account);
+  const accountStatus = accountProbeStatus(snapshot.account, connection);
 
   return buildServerProvider({
     presentation: CODEX_PRESENTATION,
