@@ -53,54 +53,89 @@ function isTableHeader(line: string): boolean {
   return trimmed.startsWith("[") && trimmed.endsWith("]");
 }
 
+function isTopLevelModelProviderAssignment(line: string): boolean {
+  return /^model_provider\s*=/.test(line.trim());
+}
+
+function isNorthbridgeProviderTable(line: string): boolean {
+  return /^\[model_providers\.northbridge_[^\]]+\]$/.test(line.trim());
+}
+
+function normalizeTomlBlankLines(toml: string): string {
+  return toml
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+/, "")
+    .replace(/\n+$/, "");
+}
+
 function stripManagedCodexEndpointTables(toml: string): string {
   const lines = toml.split(/\r?\n/);
   const kept: string[] = [];
+  let inTable = false;
   let index = 0;
   while (index < lines.length) {
-    const trimmed = lines[index]!.trim();
+    const line = lines[index]!;
+    const trimmed = line.trim();
 
     if (trimmed === CODEX_ENDPOINT_MANAGED_COMMENT) {
       index += 1;
       continue;
     }
 
-    if (/^model_provider\s*=/.test(trimmed)) {
-      index += 1;
-      continue;
-    }
-
-    if (/^\[model_providers\.northbridge_[^\]]+\]$/.test(trimmed)) {
-      index += 1;
-      while (index < lines.length) {
-        const next = lines[index]!;
-        if (next.trim() === CODEX_ENDPOINT_MANAGED_COMMENT || isTableHeader(next)) {
-          break;
-        }
+    if (isTableHeader(line)) {
+      if (isNorthbridgeProviderTable(line)) {
         index += 1;
+        while (index < lines.length) {
+          const next = lines[index]!;
+          if (next.trim() === CODEX_ENDPOINT_MANAGED_COMMENT || isTableHeader(next)) {
+            break;
+          }
+          index += 1;
+        }
+        continue;
       }
+      inTable = true;
+      kept.push(line);
+      index += 1;
       continue;
     }
 
-    kept.push(lines[index]!);
+    if (!inTable && isTopLevelModelProviderAssignment(line)) {
+      index += 1;
+      continue;
+    }
+
+    kept.push(line);
     index += 1;
   }
 
-  return kept
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/^\n+/, "")
-    .replace(/\n+$/, "");
+  return normalizeTomlBlankLines(kept.join("\n"));
 }
 
-function renderManagedCodexEndpointBlock(connection: ResolvedProviderConnection): string {
+function splitPreambleAndTables(toml: string): {
+  readonly preamble: string;
+  readonly tables: string;
+} {
+  const lines = toml.length === 0 ? [] : toml.split(/\r?\n/);
+  const firstTable = lines.findIndex((line) => isTableHeader(line));
+  if (firstTable === -1) {
+    return { preamble: toml, tables: "" };
+  }
+  return {
+    preamble: normalizeTomlBlankLines(lines.slice(0, firstTable).join("\n")),
+    tables: normalizeTomlBlankLines(lines.slice(firstTable).join("\n")),
+  };
+}
+
+function renderManagedSelector(slug: string): string {
+  return `${CODEX_ENDPOINT_MANAGED_COMMENT}\nmodel_provider = "${slug}"`;
+}
+
+function renderManagedProviderTable(connection: ResolvedProviderConnection): string {
   const endpoint = connection.endpoint;
   if (endpoint === undefined) return "";
   const slug = northbridgeCodexProviderSlug(endpoint.id);
   const lines = [
-    CODEX_ENDPOINT_MANAGED_COMMENT,
-    `model_provider = "${slug}"`,
-    "",
     CODEX_ENDPOINT_MANAGED_COMMENT,
     `[model_providers.${slug}]`,
     `name = "${escapeTomlBasicString(endpoint.name)}"`,
@@ -121,12 +156,17 @@ export function upsertCodexEndpointToml(
   if (connection.endpoint === undefined) {
     return existingToml;
   }
-  const preserved = stripManagedCodexEndpointTables(existingToml);
-  const managed = renderManagedCodexEndpointBlock(connection);
-  if (preserved.length === 0) {
-    return `${managed}\n`;
-  }
-  return `${preserved}\n\n${managed}\n`;
+  const slug = northbridgeCodexProviderSlug(connection.endpoint.id);
+  const { preamble, tables } = splitPreambleAndTables(
+    stripManagedCodexEndpointTables(existingToml),
+  );
+  const parts = [
+    preamble,
+    renderManagedSelector(slug),
+    tables,
+    renderManagedProviderTable(connection),
+  ].filter((part) => part.length > 0);
+  return `${parts.join("\n\n")}\n`;
 }
 
 export const applyCodexEndpointConfig = Effect.fn("applyCodexEndpointConfig")(function* (

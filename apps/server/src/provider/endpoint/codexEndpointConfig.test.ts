@@ -109,6 +109,31 @@ describe("upsertCodexEndpointToml", () => {
     expect(toml).toContain("[model_providers.northbridge_omnirouter_prod]");
   });
 
+  it("keeps model_provider in the top-level preamble and preserves profile table selectors", () => {
+    const existing = [
+      'approval_policy = "never"',
+      "",
+      "[mcp_servers.github]",
+      'command = "uvx"',
+      "",
+      "[profiles.work]",
+      'model_provider = "openai"',
+    ].join("\n");
+    const toml = upsertCodexEndpointToml(existing, omnirouterConnection());
+    const firstTable = toml.split(/\r?\n/).findIndex((line) => {
+      const trimmed = line.trim();
+      return trimmed.startsWith("[") && trimmed.endsWith("]");
+    });
+    expect(firstTable).toBeGreaterThan(0);
+    const preamble = toml.split(/\r?\n/).slice(0, firstTable).join("\n");
+    expect(preamble).toMatch(/^model_provider\s*=\s*"northbridge_omnirouter_prod"\s*$/m);
+    expect(preamble).toContain('approval_policy = "never"');
+    expect(preamble).not.toContain("[mcp_servers.github]");
+    expect(toml).toMatch(/\[profiles\.work\][^\[]*model_provider\s*=\s*"openai"/);
+    expect(toml).toContain("[mcp_servers.github]");
+    expect(toml).toContain('command = "uvx"');
+  });
+
   it("does not put the OmniRouter token into generated config", () => {
     const toml = upsertCodexEndpointToml("", omnirouterConnection());
     expect(toml).not.toContain("tok_live");
