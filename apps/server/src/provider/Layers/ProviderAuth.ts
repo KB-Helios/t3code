@@ -103,7 +103,7 @@ export function parseGrokDeviceAuthOutput(
   const urlMatch = stdout.match(DEVICE_URL_PATTERN);
   const enterMatch = stdout.match(DEVICE_ENTER_CODE_PATTERN);
   const dashedMatch = stdout.match(DEVICE_USER_CODE_PATTERN);
-  const verificationUri = urlMatch?.[0]?.replace(/[.,;]+$/, "");
+  const verificationUri = urlMatch?.[0]?.replace(/[.,;)}\]>'"]+$/, "");
   const userCode = (enterMatch?.[1] ?? dashedMatch?.[1])?.trim();
   if (!verificationUri || !userCode) return undefined;
   return { verificationUri, userCode };
