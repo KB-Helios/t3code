@@ -59,8 +59,8 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
     const isShared = effectiveHomePath === sharedHomePath;
 
     if (endpointAttached && isShared) {
-      const instanceId = options.instanceId?.trim() ?? "";
-      const stateDir = options.stateDir?.trim() ?? "";
+      const instanceId = options?.instanceId?.trim() ?? "";
+      const stateDir = options?.stateDir?.trim() ?? "";
       if (instanceId.length > 0 && stateDir.length > 0) {
         return {
           sharedHomePath,
@@ -69,12 +69,12 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
         };
       }
       Effect.logWarning(
-        "Endpoint-attached instance resolved to shared home path - falling back to provider-owned path",
+        "Endpoint-attached instance resolved to shared home path - cannot fall back to shared home",
       );
       return {
         sharedHomePath,
         effectiveHomePath: undefined,
-        isolated: false,
+        isolated: true,
       };
     }
 
@@ -86,8 +86,8 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
   }
 
   if (endpointAttached) {
-    const instanceId = options.instanceId?.trim() ?? "";
-    const stateDir = options.stateDir?.trim() ?? "";
+    const instanceId = options?.instanceId?.trim() ?? "";
+    const stateDir = options?.stateDir?.trim() ?? "";
     if (instanceId.length > 0 && stateDir.length > 0) {
       return {
         sharedHomePath,
@@ -95,6 +95,14 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
         isolated: true,
       };
     }
+    Effect.logWarning(
+      "Endpoint-attached instance with no configured home requires instanceId and stateDir",
+    );
+    return {
+      sharedHomePath,
+      effectiveHomePath: undefined,
+      isolated: true,
+    };
   }
 
   return {

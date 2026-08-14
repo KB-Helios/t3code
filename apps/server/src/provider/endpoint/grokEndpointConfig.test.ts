@@ -1,4 +1,4 @@
-import { EndpointProfileId, type EndpointProtocol } from "@t3tools/contracts";
+import { type EndpointProtocol } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -6,7 +6,7 @@ import {
   northbridgeGrokModelTable,
   upsertGrokEndpointToml,
 } from "./grokEndpointConfig.ts";
-import { OMNIROUTER_ENDPOINT_ID, OMNIROUTER_AUTH_ID, omnirouterConnection } from "./testFixtures.ts";
+import { OMNIROUTER_ENDPOINT_ID, omnirouterConnection } from "./testFixtures.ts";
 
 describe("apiBackendForEndpointProtocol", () => {
   it.each([

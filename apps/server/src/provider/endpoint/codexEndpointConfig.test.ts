@@ -1,8 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
-  AuthProfileId,
   CodexSettings,
-  EndpointProfileId,
   type EndpointProtocol,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -20,32 +18,11 @@ import {
   upsertCodexEndpointToml,
   wireApiForEndpointProtocol,
 } from "./codexEndpointConfig.ts";
-import type { ResolvedProviderConnection } from "./resolveProviderConnection.ts";
-
-const decodeCodexSettings = Schema.decodeSync(CodexSettings);
-
-const OMNIROUTER_ENDPOINT_ID = EndpointProfileId.make("omnirouter_prod");
-const OMNIROUTER_AUTH_ID = AuthProfileId.make("omnirouter_kevin");
-
-const omnirouterConnection = (
-  overrides: Partial<ResolvedProviderConnection> = {},
-): ResolvedProviderConnection => ({
-  endpoint: {
-    id: OMNIROUTER_ENDPOINT_ID,
-    name: "OmniRouter",
-    baseUrl: "https://router.example/v1",
-    protocol: "openai-responses",
-    modelDiscovery: { type: "models-endpoint" },
-  },
-  auth: {
-    id: OMNIROUTER_AUTH_ID,
-    name: "Kevin OmniRouter",
-    method: "bearer-env",
-    envKey: "OMNIROUTER_TOKEN",
-    secret: "tok_live",
-  },
-  ...overrides,
-});
+import {
+  OMNIROUTER_ENDPOINT_ID,
+  OMNIROUTER_AUTH_ID,
+  omnirouterConnection,
+} from "./testFixtures.ts";
 
 const makeTempDir = Effect.fn("codexEndpointConfig.test.makeTempDir")(function* (prefix: string) {
   const fileSystem = yield* FileSystem.FileSystem;

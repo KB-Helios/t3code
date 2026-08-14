@@ -233,7 +233,7 @@ describe("ProviderAuth", () => {
       const cancelled = yield* auth.cancel({ flowId: pending.flowId });
       expect(killed.value).toBe(true);
       expect(killed.pid).toBe(9191);
-      expect(cancelled).toMatchObject({
+      expect(cancelled).toEqual({
         state: "unauthenticated",
         methods: ["device-code"],
       });

@@ -304,14 +304,12 @@ const make = Effect.gen(function* () {
   const collectDeviceCode = (stdout: Stream.Stream<Uint8Array>) => {
     const decoder = new TextDecoder();
     return stdout.pipe(
-      Stream.mapAccum(
-        "",
-        (buffer, chunk) => {
-          const next = `${buffer}${decoder.decode(chunk)}`;
-          const parsed = parseGrokDeviceAuthOutput(next);
-          return [next, parsed === undefined ? [] : [parsed]] as const;
-        },
-      ),
+      Stream.mapAccum("", (buffer, chunk) => {
+        const next = `${buffer}${decoder.decode(chunk)}`;
+        const parsed = parseGrokDeviceAuthOutput(next);
+        return [next, parsed === undefined ? [] : [parsed]] as const;
+      }),
+      Stream.filter((chunk) => chunk.length > 0),
       Stream.take(1),
       Stream.runHead,
     );
@@ -558,8 +556,7 @@ const make = Effect.gen(function* () {
       );
       if (fromStore !== undefined) return fromStore;
       if (instance.auth !== undefined) {
-        const status = yield* instance.auth.getStatus();
-        return status;
+        return yield* instance.auth.getStatus();
       }
       const snapshot = yield* instance.snapshot.getSnapshot;
       return snapshotAuthState(snapshot);
@@ -640,19 +637,18 @@ const make = Effect.gen(function* () {
       yield* killTracked(flow);
       yield* updateFlow(String(flow.flowId), { cancelled: true });
       const status = yield* getStatus({ instanceId: flow.instanceId });
-      if (status.state === "authenticated" || status.state === "error") {
+      if (
+        status.state === "authenticated" ||
+        status.state === "error" ||
+        status.state === "unauthenticated"
+      ) {
         yield* updateFlow(String(flow.flowId), { cancelled: true, state: status });
         return status;
       }
       const instance = yield* requireInstance(flow.instanceId);
       const grok = instance.auth !== undefined ? grokAuthConfigs.get(instance.auth) : undefined;
-      const codex = instance.auth !== undefined ? codexAuthConfigs.get(instance.auth) : undefined;
-      const fallbackMethods: ProviderAuthMethod[] =
-        grok !== undefined ? ["device-code"] : codex !== undefined ? ["browser"] : [];
-      const next: ProviderAuthState =
-        status.state === "unauthenticated"
-          ? status
-          : { state: "unauthenticated", methods: fallbackMethods };
+      const fallbackMethods: ProviderAuthMethod[] = grok !== undefined ? ["device-code"] : [];
+      const next: ProviderAuthState = { state: "unauthenticated", methods: fallbackMethods };
       yield* updateFlow(String(flow.flowId), { cancelled: true, state: next });
       return next;
     });

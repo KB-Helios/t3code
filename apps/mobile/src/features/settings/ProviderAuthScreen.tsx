@@ -58,17 +58,18 @@ export function ProviderAuthScreen() {
               </Text>
               <View className="overflow-hidden rounded-[24px] bg-card">
                 {(environment.serverConfig?.providers ?? [])
-                  .filter((provider) => {
-                    const model = providerAuthControlsModel(
+                  .map((provider) => ({
+                    provider,
+                    model: providerAuthControlsModel(
                       provider.auth?.status === "authenticated"
                         ? { state: "authenticated", methods: [] }
                         : provider.auth?.status === "unauthenticated"
                           ? { state: "unauthenticated", methods: [] }
                           : undefined,
-                    );
-                    return model.canSignIn || model.canSignOut || model.canCancel;
-                  })
-                  .map((provider, index) => (
+                    ),
+                  }))
+                  .filter(({ model }) => model.canSignIn || model.canSignOut || model.canCancel)
+                  .map(({ provider }, index) => (
                     <View
                       key={provider.instanceId}
                       className={index === 0 ? undefined : "border-t border-border"}

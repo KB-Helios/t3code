@@ -56,6 +56,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   environmentWithResolvedAuth,
   missingEndpointProfileMessage,
+  missingAuthProfileMessage,
   resolveProviderConnection,
   type ResolvedProviderConnection,
 } from "../endpoint/resolveProviderConnection.ts";
@@ -218,10 +219,20 @@ const buildEntry = <R>(input: {
       entry.endpointProfileId !== undefined && connection.endpoint === undefined
         ? missingEndpointProfileMessage(entry.endpointProfileId)
         : undefined;
+    const danglingAuthWarning =
+      entry.authProfileId !== undefined && connection.auth === undefined
+        ? missingAuthProfileMessage(entry.authProfileId)
+        : undefined;
     if (danglingEndpointWarning !== undefined) {
       yield* Effect.logWarning(danglingEndpointWarning, {
         instanceId: rawInstanceId,
         endpointProfileId: entry.endpointProfileId,
+      });
+    }
+    if (danglingAuthWarning !== undefined) {
+      yield* Effect.logWarning(danglingAuthWarning, {
+        instanceId: rawInstanceId,
+        authProfileId: entry.authProfileId,
       });
     }
 
@@ -258,7 +269,10 @@ const buildEntry = <R>(input: {
     return {
       kind: "live" as const,
       live: {
-        instance: applyConnectionWarning(createResult.success, danglingEndpointWarning),
+        instance: applyConnectionWarning(
+          applyConnectionWarning(createResult.success, danglingEndpointWarning),
+          danglingAuthWarning,
+        ),
         scope: childScope,
         entry,
         connection,

@@ -81,7 +81,7 @@ function stripManagedCodexEndpointTables(toml: string): string {
   const lines = toml.split(/\r?\n/);
   const kept: string[] = [];
   let inTable = false;
-  let inManagedContext = false;
+  let inManagedTable = false;
   let index = 0;
   while (index < lines.length) {
     const line = lines[index]!;
@@ -89,7 +89,7 @@ function stripManagedCodexEndpointTables(toml: string): string {
 
     if (isTableHeader(line)) {
       if (isNorthbridgeProviderTable(line)) {
-        inManagedContext = true;
+        inManagedTable = true;
         index += 1;
         while (index < lines.length) {
           const next = lines[index]!;
@@ -98,22 +98,24 @@ function stripManagedCodexEndpointTables(toml: string): string {
           }
           index += 1;
         }
-        inManagedContext = false;
+        inManagedTable = false;
         continue;
       }
       inTable = true;
-      inManagedContext = false;
+      inManagedTable = false;
       kept.push(line);
       index += 1;
       continue;
     }
 
     if (trimmed === CODEX_ENDPOINT_MANAGED_COMMENT) {
-      if (!inTable || inManagedContext) {
-        inManagedContext = true;
+      if (!inTable) {
         index += 1;
         continue;
       }
+      kept.push(line);
+      index += 1;
+      continue;
     }
 
     if (!inTable && isTopLevelModelProviderAssignment(line)) {

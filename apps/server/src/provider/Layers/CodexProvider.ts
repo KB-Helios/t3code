@@ -480,7 +480,6 @@ export function endpointAuthSuppressesCodexLogin(
 } {
   if (connection?.endpoint === undefined || connection.auth === undefined) return false;
   const method = connection.auth.method;
-  if (method === undefined) return false;
   if (method === "none") return true;
   return method !== "oauth-browser" && method !== "oauth-device";
 }

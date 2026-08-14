@@ -727,6 +727,9 @@ describe("ProviderInstanceRegistryLive — endpoint and auth profiles", () => {
 
       yield* mutator.reconcile(configMap);
       expect(created).toHaveLength(2);
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
     }).pipe(
       Effect.provide(
         serverSettingsLayer.pipe(
