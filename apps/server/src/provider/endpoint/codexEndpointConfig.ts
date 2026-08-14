@@ -244,14 +244,19 @@ export const applyCodexEndpointConfig = Effect.fn("applyCodexEndpointConfig")(fu
 
   yield* fileSystem.rename(tempPath, configPath).pipe(
     Effect.catchTags({
-      PlatformError: (cause) => {
-        fileSystem.remove(tempPath).pipe(Effect.orDie, Effect.runPromise);
-        return new CodexEndpointConfigFileSystemError({
-          path: configPath,
-          operation: "writeFile",
-          cause,
-        });
-      },
+      PlatformError: (cause) =>
+        fileSystem.remove(tempPath).pipe(
+          Effect.catch(() => Effect.void),
+          Effect.andThen(
+            Effect.fail(
+              new CodexEndpointConfigFileSystemError({
+                path: configPath,
+                operation: "writeFile",
+                cause,
+              }),
+            ),
+          ),
+        ),
     }),
   );
 });
