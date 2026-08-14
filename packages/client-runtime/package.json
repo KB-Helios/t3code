@@ -75,6 +75,10 @@
       "types": "./src/state/preview.ts",
       "default": "./src/state/preview.ts"
     },
+    "./state/providerAuth": {
+      "types": "./src/state/providerAuth.ts",
+      "default": "./src/state/providerAuth.ts"
+    },
     "./state/projects": {
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"

@@ -13,6 +13,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeGrokTextGeneration } from "../../textGeneration/GrokTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeGrokAdapter } from "../Layers/GrokAdapter.ts";
+import { makeGrokProviderAuth } from "../Layers/ProviderAuth.ts";
 import {
   buildInitialGrokProviderSnapshot,
   checkGrokProviderStatus,
@@ -195,6 +196,12 @@ export const GrokDriver: ProviderDriver<GrokSettings, GrokDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        auth: makeGrokProviderAuth({
+          instanceId,
+          binaryPath: effectiveConfig.binaryPath || "grok",
+          processEnv,
+          ...(connection !== undefined ? { connection } : {}),
+        }),
       } satisfies ProviderInstance;
     }),
 };

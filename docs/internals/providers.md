@@ -41,6 +41,13 @@ orchestration, contract, or client change is required for the common case.
 
 ## How provider work is requested
 
+Interactive login is a separate RPC surface, `providerAuth.*` in [`providerAuth.ts`][provider-auth]:
+`getStatus` / `getFlow` (`orchestration:read`) and `begin` / `cancel` / `logout`
+(`orchestration:operate`). Grok `begin(device-code)` runs `grok login --device-auth` in the instance
+home and returns a verification URI plus user code. Tokens never appear on that wire. Codex API-key
+or bearer auth-profiles report authenticated when the secret is present; ChatGPT login is host-local
+browser OAuth.
+
 Clients never call a provider directly. They dispatch orchestration commands over the RPC method
 `orchestration.dispatchCommand`, defined with the rest of the orchestration surface in
 [`orchestration.ts`][contracts]. The client-dispatchable provider-facing commands are
@@ -86,6 +93,7 @@ when a request opens (approval) or user input is requested, via
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts
 [service]: ../../apps/server/src/provider/Layers/ProviderService.ts
 [contracts]: ../../packages/contracts/src/orchestration.ts
+[provider-auth]: ../../packages/contracts/src/providerAuth.ts
 [worker]: ../../packages/shared/src/DrainableWorker.ts
 [ingest]: ../../apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts
 [cmd]: ../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts

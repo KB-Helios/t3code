@@ -36,6 +36,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeCodexAdapter } from "../Layers/CodexAdapter.ts";
+import { makeCodexProviderAuth } from "../Layers/ProviderAuth.ts";
 import { checkCodexProviderStatus, makePendingCodexProvider } from "../Layers/CodexProvider.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
@@ -230,6 +231,13 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        auth: makeCodexProviderAuth({
+          instanceId,
+          binaryPath: effectiveConfig.binaryPath || "codex",
+          processEnv,
+          getSnapshot: () => snapshot.getSnapshot,
+          ...(connection !== undefined ? { connection } : {}),
+        }),
       } satisfies ProviderInstance;
     }),
 };

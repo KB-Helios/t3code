@@ -90,6 +90,7 @@ function LocalSettingsRouteScreen() {
             value={`${environmentCount}`}
             target="SettingsEnvironments"
           />
+          <SettingsRow icon="key" label="Provider sign-in" target="SettingsProviderAuth" />
         </SettingsSection>
 
         <GeneralSettingsSection />

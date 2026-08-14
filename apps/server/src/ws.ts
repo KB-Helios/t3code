@@ -77,6 +77,7 @@ import {
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import { ProviderAuth } from "./provider/Layers/ProviderAuth.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -365,6 +366,7 @@ const makeWsRpcLayer = (
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+      const providerAuth = yield* ProviderAuth;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -1509,6 +1511,30 @@ const makeWsRpcLayer = (
               .pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
             {
               "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.providerAuthGetStatus]: (input) =>
+          observeRpcEffect(WS_METHODS.providerAuthGetStatus, providerAuth.getStatus(input), {
+            "rpc.aggregate": "provider-auth",
+          }),
+        [WS_METHODS.providerAuthBegin]: (input) =>
+          observeRpcEffect(WS_METHODS.providerAuthBegin, providerAuth.begin(input), {
+            "rpc.aggregate": "provider-auth",
+          }),
+        [WS_METHODS.providerAuthGetFlow]: (input) =>
+          observeRpcEffect(WS_METHODS.providerAuthGetFlow, providerAuth.getFlow(input), {
+            "rpc.aggregate": "provider-auth",
+          }),
+        [WS_METHODS.providerAuthCancel]: (input) =>
+          observeRpcEffect(WS_METHODS.providerAuthCancel, providerAuth.cancel(input), {
+            "rpc.aggregate": "provider-auth",
+          }),
+        [WS_METHODS.providerAuthLogout]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerAuthLogout,
+            providerAuth.logout(input).pipe(Effect.as({})),
+            {
+              "rpc.aggregate": "provider-auth",
             },
           ),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
