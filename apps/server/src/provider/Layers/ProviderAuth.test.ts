@@ -18,6 +18,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { authProfileSecretName } from "../endpoint/resolveProviderConnection.ts";
 import { defaultProviderContinuationIdentity, type ProviderInstance } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
@@ -148,6 +149,7 @@ function providerAuthLayer(input: {
           }),
       ),
     ),
+    Layer.provide(ServerSettingsService.layerTest()),
   );
 }
 
@@ -471,6 +473,48 @@ describe("ProviderAuth", () => {
                 module: "ChildProcess",
                 method: "spawn",
                 description: "codex",
+              }),
+            ),
+        }),
+      ),
+    ),
+  );
+
+  it.effect("Codex begin(browser) becomes authenticated when login exits 0 immediately", () =>
+    Effect.gen(function* () {
+      const auth = yield* ProviderAuth;
+      const pending = yield* auth.begin({ instanceId: codexId, method: "browser" });
+      expect(pending).toMatchObject({
+        state: "pending",
+        method: "browser",
+        message: "Finish Codex login on the environment host",
+      });
+      const status = yield* awaitStatus(auth, codexId, (state) => state.state === "authenticated");
+      expect(status).toMatchObject({
+        state: "authenticated",
+        methods: ["browser"],
+      });
+    }).pipe(
+      Effect.provide(
+        providerAuthLayer({
+          instances: [
+            stubInstance({
+              instanceId: codexId,
+              driverKind: codexDriver,
+              auth: makeCodexProviderAuth({
+                instanceId: codexId,
+                binaryPath: "codex",
+                processEnv: {},
+              }),
+            }),
+          ],
+          spawn: () =>
+            Effect.succeed(
+              fakeHandle({
+                pid: 88,
+                stdout: "",
+                exitCode: 0,
+                killed: { value: false },
               }),
             ),
         }),

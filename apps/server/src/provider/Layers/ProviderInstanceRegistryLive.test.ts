@@ -48,7 +48,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerSettingsService, layer as serverSettingsLayer } from "../../serverSettings.ts";
 import { ClaudeDriver } from "../Drivers/ClaudeDriver.ts";
 import { CodexDriver } from "../Drivers/CodexDriver.ts";
 import { CursorDriver } from "../Drivers/CursorDriver.ts";
@@ -62,7 +62,12 @@ import {
   type ProviderInstance,
 } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
-import { authProfileSecretName } from "../endpoint/resolveProviderConnection.ts";
+import {
+  authProfileSecretName,
+  resolveProviderConnection,
+} from "../endpoint/resolveProviderConnection.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import { makeCodexProviderAuth, ProviderAuth, ProviderAuthLive } from "./ProviderAuth.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "./ProviderEventLoggers.ts";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistryLive.ts";
 
@@ -516,6 +521,11 @@ describe("ProviderInstanceRegistryLive — endpoint and auth profiles", () => {
           },
           adapter: {} as ProviderInstance["adapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],
+          auth: makeCodexProviderAuth({
+            instanceId: input.instanceId,
+            processEnv: {},
+            ...(input.connection !== undefined ? { connection: input.connection } : {}),
+          }),
         } satisfies ProviderInstance);
       },
     }) satisfies ProviderDriver<unknown>;
@@ -642,6 +652,91 @@ describe("ProviderInstanceRegistryLive — endpoint and auth profiles", () => {
           Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           Layer.provideMerge(ServerSettingsService.layerTest()),
           Layer.provideMerge(memorySecretStoreLayer({})),
+          Layer.provideMerge(TestHttpClientLive),
+          Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        ),
+      ),
+    ),
+  );
+
+  it.live("rebuilds the instance without the auth env after providerAuth logout", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_omnirouter");
+      const created: ProviderDriverCreateInput<unknown>[] = [];
+      const serverSettings = yield* ServerSettingsService;
+      yield* serverSettings.updateSettings({
+        endpointProfiles: {
+          [OMNIROUTER_ENDPOINT_ID]: {
+            name: "OmniRouter",
+            baseUrl: "https://router.example/v1",
+            protocol: "openai-responses",
+            modelDiscovery: { type: "models-endpoint" },
+          },
+        },
+        authProfiles: {
+          [OMNIROUTER_AUTH_ID]: {
+            name: "Kevin OmniRouter",
+            method: "bearer-env",
+            envKey: "OMNIROUTER_TOKEN",
+          },
+        },
+        authProfileSecrets: {
+          [OMNIROUTER_AUTH_ID]: "tok_live",
+        },
+      });
+
+      const configMap: ProviderInstanceConfigMap = {
+        [instanceId]: {
+          driver: fakeDriverKind,
+          enabled: false,
+          endpointProfileId: OMNIROUTER_ENDPOINT_ID,
+          authProfileId: OMNIROUTER_AUTH_ID,
+          config: {},
+        },
+      };
+
+      const { registry, mutator } = yield* makeProviderInstanceRegistry({
+        drivers: [makeRecordingDriver(created)],
+        configMap,
+      });
+
+      expect(created).toHaveLength(1);
+      expect(created[0]?.connection?.auth?.secret).toBe("tok_live");
+      expect(created[0]?.environment).toEqual([
+        { name: "OMNIROUTER_TOKEN", value: "tok_live", sensitive: true },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const auth = yield* ProviderAuth;
+        yield* auth.logout({ instanceId });
+      }).pipe(
+        Effect.provide(
+          ProviderAuthLive.pipe(Layer.provide(Layer.succeed(ProviderInstanceRegistry, registry))),
+        ),
+      );
+
+      const settings = yield* serverSettings.getSettings;
+      const connection = yield* resolveProviderConnection(settings, configMap[instanceId]!);
+      expect(connection.auth?.secret).toBeUndefined();
+      expect(settings.authProfiles[OMNIROUTER_AUTH_ID]?.secretRedacted).toBeUndefined();
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
+      expect(created[1]?.connection?.auth?.secret).toBeUndefined();
+      expect(created[1]?.environment).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        serverSettingsLayer.pipe(
+          Layer.provideMerge(ServerSecretStore.layer),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "provider-instance-registry-logout-rebuild-test",
+              }),
+            ),
+          ),
+          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
           Layer.provideMerge(TestHttpClientLive),
           Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
         ),

@@ -27,6 +27,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   authProfileSecretName,
   type ResolvedProviderConnection,
@@ -228,6 +229,7 @@ const make = Effect.gen(function* () {
   const registry = yield* ProviderInstanceRegistry;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
+  const serverSettings = yield* ServerSettingsService;
   const flowsRef = yield* Ref.make(new Map<string, RegisteredFlow>());
 
   const readFlows = Ref.get(flowsRef);
@@ -422,8 +424,6 @@ const make = Effect.gen(function* () {
         flowId,
         message: CODEX_BROWSER_MESSAGE,
       };
-      let kill: () => Effect.Effect<void> = () => Effect.void;
-      let pid: number | undefined;
       const child = yield* spawner
         .spawn(
           ChildProcess.make(input.binaryPath || "codex", ["login"], {
@@ -440,11 +440,28 @@ const make = Effect.gen(function* () {
               }),
           ),
         );
-      pid = Number(child.pid);
-      kill = () => child.kill().pipe(Effect.asVoid);
+      const pid = Number(child.pid);
+      const kill = () => child.kill().pipe(Effect.asVoid);
+      yield* putFlow({
+        flowId,
+        instanceId: input.instanceId,
+        pid,
+        kill,
+        cancelled: false,
+        state,
+      });
       yield* child.exitCode.pipe(
         Effect.matchCauseEffect({
-          onFailure: () => Effect.void,
+          onFailure: () =>
+            getRegistered(String(flowId)).pipe(
+              Effect.flatMap((current) =>
+                current === undefined || current.cancelled
+                  ? Effect.void
+                  : updateFlow(String(flowId), {
+                      state: { state: "error", message: "Codex login process failed" },
+                    }),
+              ),
+            ),
           onSuccess: (code) =>
             getRegistered(String(flowId)).pipe(
               Effect.flatMap((current) => {
@@ -464,14 +481,6 @@ const make = Effect.gen(function* () {
         }),
         Effect.forkDetach,
       );
-      yield* putFlow({
-        flowId,
-        instanceId: input.instanceId,
-        pid,
-        kill,
-        cancelled: false,
-        state,
-      });
       return state;
     });
 
@@ -488,6 +497,24 @@ const make = Effect.gen(function* () {
       ),
     );
   };
+
+  const persistClearedAuthProfile = (
+    authId: NonNullable<ResolvedProviderConnection["auth"]>["id"],
+  ) =>
+    serverSettings
+      .updateSettings({
+        authProfileSecrets: { [authId]: "" },
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAuthError({
+              message: "Failed to persist the cleared auth-profile secret",
+              cause,
+            }),
+        ),
+        Effect.asVoid,
+      );
 
   const authProfileSecretPresent = (
     authId: NonNullable<ResolvedProviderConnection["auth"]>["id"],
@@ -634,10 +661,12 @@ const make = Effect.gen(function* () {
       const connection = grok?.connection ?? codex?.connection;
       if (isApiKeyAuthMethod(connection?.auth?.method)) {
         yield* deleteAuthProfileSecret(connection);
+        if (connection?.auth?.id !== undefined) {
+          yield* persistClearedAuthProfile(connection.auth.id);
+        }
       } else if (instance.auth !== undefined) {
         yield* instance.auth.logout();
       }
-      const flow = yield* flowForInstance(input.instanceId);
       yield* retireInstanceFlows(input.instanceId);
     });
 
