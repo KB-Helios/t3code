@@ -22,11 +22,15 @@ CODEX_HOME path: ~/.codex
 Shadow home path: empty
 ```
 
-Log in with Codex normally:
+Log in with Codex normally from Settings → Providers (Sign in), or on the environment host:
 
 ```bash
 codex login
 ```
+
+ChatGPT login is host-local: the environment machine finishes the browser flow. API-key and
+bearer auth profiles do not use that browser login — they are authenticated when the stored
+secret is present, and Sign out removes that secret.
 
 ## I Want Work And Personal Codex Accounts
 

@@ -1,10 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  AuthProfileId,
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerSettings,
   ServerSettingsPatch,
+  type AuthProfile,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
@@ -18,6 +20,10 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfig from "./config.ts";
+import {
+  authProfileSecretName,
+  resolveProviderConnection,
+} from "./provider/endpoint/resolveProviderConnection.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
@@ -690,5 +696,103 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         "sk-or-secret",
       );
     }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect(
+    "loads the auth-profile secret from ServerSecretStore and does not write it into settings.json",
+    () =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const secretStore = yield* ServerSecretStore.ServerSecretStore;
+        const authProfileId = AuthProfileId.make("omnirouter_kevin");
+
+        const next = yield* serverSettings.updateSettings({
+          authProfiles: {
+            [authProfileId]: {
+              name: "Kevin OmniRouter",
+              method: "bearer-env",
+              envKey: "OMNIROUTER_TOKEN",
+            },
+          },
+          authProfileSecrets: {
+            [authProfileId]: "tok_live",
+          },
+        });
+
+        assert.equal(next.authProfiles[authProfileId]?.secretRedacted, true);
+        assert.notInclude(JSON.stringify(next), "tok_live");
+
+        const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+        assert.notInclude(raw, "tok_live");
+        assert.notInclude(raw, "authProfileSecrets");
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        assert.equal(JSON.parse(raw).authProfiles.omnirouter_kevin.secretRedacted, true);
+
+        const stored = yield* secretStore.get(authProfileSecretName(authProfileId));
+        assert.equal(
+          Option.isSome(stored) ? new TextDecoder().decode(stored.value) : undefined,
+          "tok_live",
+        );
+
+        const connection = yield* resolveProviderConnection(next, {
+          driver: ProviderDriverKind.make("codex"),
+          authProfileId,
+          config: {},
+        });
+        assert.equal(connection.auth?.secret, "tok_live");
+
+        const updated = yield* serverSettings.updateSettings({
+          authProfiles: {
+            [authProfileId]: {
+              name: "Kevin OmniRouter Updated",
+              method: "bearer-env",
+              envKey: "OMNIROUTER_TOKEN",
+            },
+          },
+        });
+
+        const connectionAfterUpdate = yield* resolveProviderConnection(updated, {
+          driver: ProviderDriverKind.make("codex"),
+          authProfileId,
+          config: {},
+        });
+        assert.equal(connectionAfterUpdate.auth?.secret, "tok_live");
+      }).pipe(
+        Effect.provide(
+          ServerSettingsModule.layer.pipe(
+            Layer.provideMerge(ServerSecretStore.layer),
+            Layer.provideMerge(
+              Layer.fresh(
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3code-server-settings-auth-profile-test-",
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+  );
+
+  it.effect("redacts auth profiles for the client", () =>
+    Effect.sync(() => {
+      const authProfileId = AuthProfileId.make("omnirouter_kevin");
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        authProfiles: {
+          [authProfileId]: {
+            name: "Kevin OmniRouter",
+            method: "bearer-env",
+            envKey: "OMNIROUTER_TOKEN",
+            secret: "tok_live",
+          } as AuthProfile,
+        },
+      };
+
+      const redacted = ServerSettingsModule.redactServerSettingsForClient(settings);
+      assert.equal(redacted.authProfiles[authProfileId]?.secretRedacted, true);
+      assert.notInclude(JSON.stringify(redacted), "tok_live");
+    }),
   );
 });

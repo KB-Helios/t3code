@@ -6,13 +6,22 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
-import { CodexSettings } from "@t3tools/contracts";
+import {
+  AuthProfileId,
+  CodexSettings,
+  EndpointProfileId,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import {
   CodexShadowHomeEntryConflictError,
   CodexShadowHomePathConflictError,
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
+import {
+  applyCodexEndpointConfig,
+  CODEX_ENDPOINT_MANAGED_COMMENT,
+} from "../endpoint/codexEndpointConfig.ts";
 const decodeCodexSettingsValue = Schema.decodeSync(CodexSettings);
 
 const decodeCodexSettings = (input: {
@@ -298,6 +307,266 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           `Codex shadow home filesystem operation 'makeDirectory' failed for '${error.path}'.`,
         );
       }),
+    );
+
+    it.effect("writes a private config.toml when an endpoint is attached", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+        const shadowHome = path.join(shadowRoot, "shadow");
+        yield* writeTextFile(
+          path.join(sharedHome, "config.toml"),
+          'approval_policy = "never"\nmodel = "gpt-5-codex"\n',
+        );
+        yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
+
+        const layout = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({
+            homePath: sharedHome,
+            shadowHomePath: shadowHome,
+          }),
+          { endpointAttached: true },
+        );
+        yield* materializeCodexShadowHome(layout);
+        yield* applyCodexEndpointConfig(layout, {
+          endpoint: {
+            id: EndpointProfileId.make("omnirouter_prod"),
+            name: "OmniRouter",
+            baseUrl: "https://router.example/v1",
+            protocol: "openai-responses",
+            modelDiscovery: { type: "models-endpoint" },
+          },
+        });
+
+        const configPath = path.join(shadowHome, "config.toml");
+        const linkResult = yield* fileSystem.readLink(configPath).pipe(Effect.result);
+        const contents = yield* fileSystem.readFileString(configPath);
+        expect(layout.privateConfigToml).toBe(true);
+        expect(linkResult._tag).toBe("Failure");
+        expect(contents).toContain('model_provider = "northbridge_omnirouter_prod"');
+        expect(contents).toContain("[model_providers.northbridge_omnirouter_prod]");
+        expect(contents).toContain('approval_policy = "never"');
+        expect(contents).toContain('model = "gpt-5-codex"');
+      }),
+    );
+
+    it.effect("does not rewrite a user's unrelated config.toml keys", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+        const shadowHome = path.join(shadowRoot, "shadow");
+        yield* writeTextFile(
+          path.join(sharedHome, "config.toml"),
+          'approval_policy = "never"\n\n[mcp_servers.github]\ncommand = "uvx"\n',
+        );
+
+        const layout = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({
+            homePath: sharedHome,
+            shadowHomePath: shadowHome,
+          }),
+          { endpointAttached: true },
+        );
+        yield* materializeCodexShadowHome(layout);
+        yield* applyCodexEndpointConfig(layout, {
+          endpoint: {
+            id: EndpointProfileId.make("omnirouter_prod"),
+            name: "OmniRouter",
+            baseUrl: "https://router.example/v1",
+            protocol: "openai-responses",
+            modelDiscovery: { type: "models-endpoint" },
+          },
+        });
+
+        const contents = yield* fileSystem.readFileString(path.join(shadowHome, "config.toml"));
+        expect(contents).toContain('approval_policy = "never"');
+        expect(contents).toContain("[mcp_servers.github]");
+        expect(contents).toContain('command = "uvx"');
+      }),
+    );
+
+    it.effect("does not put the OmniRouter token into auth.json or settings.json", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+        const shadowHome = path.join(shadowRoot, "shadow");
+        yield* writeTextFile(
+          path.join(shadowHome, "auth.json"),
+          '{"tokens":{"access":"chatgpt"}}\n',
+        );
+        yield* writeTextFile(path.join(shadowHome, "settings.json"), '{"theme":"dark"}\n');
+
+        const layout = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({
+            homePath: sharedHome,
+            shadowHomePath: shadowHome,
+          }),
+          { endpointAttached: true },
+        );
+        yield* materializeCodexShadowHome(layout);
+        yield* applyCodexEndpointConfig(layout, {
+          endpoint: {
+            id: EndpointProfileId.make("omnirouter_prod"),
+            name: "OmniRouter",
+            baseUrl: "https://router.example/v1",
+            protocol: "openai-responses",
+            modelDiscovery: { type: "models-endpoint" },
+          },
+          auth: {
+            id: AuthProfileId.make("omnirouter_kevin"),
+            name: "Kevin OmniRouter",
+            method: "bearer-env",
+            envKey: "OMNIROUTER_TOKEN",
+            secret: "tok_live",
+          },
+        });
+
+        const authContents = yield* fileSystem.readFileString(path.join(shadowHome, "auth.json"));
+        const settingsContents = yield* fileSystem.readFileString(
+          path.join(shadowHome, "settings.json"),
+        );
+        const configContents = yield* fileSystem.readFileString(
+          path.join(shadowHome, "config.toml"),
+        );
+        expect(authContents).not.toContain("tok_live");
+        expect(settingsContents).not.toContain("tok_live");
+        expect(settingsContents).toContain("dark");
+        expect(configContents).not.toContain("tok_live");
+        expect(configContents).toContain('env_key = "OMNIROUTER_TOKEN"');
+      }),
+    );
+
+    it.effect("leaves shared-home symlink behavior intact when no endpoint is attached", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+        const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+        const shadowHome = path.join(shadowRoot, "shadow");
+        yield* writeTextFile(path.join(sharedHome, "config.toml"), 'model = "gpt-5-codex"\n');
+
+        const layout = yield* resolveCodexHomeLayout(
+          decodeCodexSettings({
+            homePath: sharedHome,
+            shadowHomePath: shadowHome,
+          }),
+        );
+        yield* materializeCodexShadowHome(layout);
+
+        const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
+        expect(layout.privateConfigToml).toBe(false);
+        expect(configTarget).toBe(path.join(sharedHome, "config.toml"));
+      }),
+    );
+
+    it.effect(
+      "restores the shared config.toml symlink after a managed private file is detached",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "shadow");
+          yield* writeTextFile(path.join(sharedHome, "config.toml"), 'model = "gpt-5-codex"\n');
+          yield* writeTextFile(
+            path.join(shadowHome, "config.toml"),
+            `${CODEX_ENDPOINT_MANAGED_COMMENT}\nmodel_provider = "northbridge_omnirouter_prod"\n`,
+          );
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+              shadowHomePath: shadowHome,
+            }),
+          );
+          yield* materializeCodexShadowHome(layout);
+
+          const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
+          expect(layout.privateConfigToml).toBe(false);
+          expect(configTarget).toBe(path.join(sharedHome, "config.toml"));
+        }),
+    );
+
+    it.effect(
+      "auto-uses a machine-owned shadow home when endpoint is set and shadow is empty",
+      () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const stateDir = yield* makeTempDir("t3code-state-");
+          const instanceId = ProviderInstanceId.make("codex_omni");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+            }),
+            {
+              instanceId,
+              stateDir,
+              endpointAttached: true,
+            },
+          );
+
+          expect(layout.mode).toBe("authOverlay");
+          expect(layout.privateConfigToml).toBe(true);
+          expect(layout.effectiveHomePath).toBe(
+            path.join(stateDir, "provider-homes", instanceId, "codex"),
+          );
+          expect(layout.sharedHomePath).toBe(sharedHome);
+        }),
+    );
+
+    it.effect(
+      "falls back to direct layout and logs warning when endpointAttached has empty instanceId",
+      () =>
+        Effect.gen(function* () {
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const stateDir = yield* makeTempDir("t3code-state-");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+            }),
+            {
+              instanceId: "",
+              stateDir,
+              endpointAttached: true,
+            },
+          );
+
+          expect(layout.mode).toBe("direct");
+          expect(layout.privateConfigToml).toBe(false);
+        }),
+    );
+
+    it.effect(
+      "falls back to direct layout and logs warning when endpointAttached has empty stateDir",
+      () =>
+        Effect.gen(function* () {
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const instanceId = ProviderInstanceId.make("codex_omni");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+            }),
+            {
+              instanceId,
+              stateDir: "",
+              endpointAttached: true,
+            },
+          );
+
+          expect(layout.mode).toBe("direct");
+          expect(layout.privateConfigToml).toBe(false);
+        }),
     );
   });
 });

@@ -22,6 +22,9 @@
  * @module provider/ProviderDriver
  */
 import type {
+  ProviderAuthError,
+  ProviderAuthMethod,
+  ProviderAuthState,
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
@@ -32,6 +35,7 @@ import type * as Scope from "effect/Scope";
 
 import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
+import type { ResolvedProviderConnection } from "./endpoint/resolveProviderConnection.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
 
@@ -61,6 +65,18 @@ export interface ProviderDriverMetadata {
  * instance of the same driver does not reach into the first instance's
  * state.
  */
+/**
+ * Optional interactive-auth SPI. Missing means the RPC layer reports
+ * snapshot auth only (or `unauthenticated` with `methods: []`).
+ */
+export interface ProviderDriverAuth {
+  readonly getStatus: () => Effect.Effect<ProviderAuthState, ProviderAuthError>;
+  readonly begin: (
+    method?: ProviderAuthMethod,
+  ) => Effect.Effect<ProviderAuthState, ProviderAuthError>;
+  readonly logout: () => Effect.Effect<void, ProviderAuthError>;
+}
+
 export interface ProviderInstance {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
@@ -71,6 +87,7 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly auth?: ProviderDriverAuth;
 }
 
 export interface ProviderContinuationIdentity {
@@ -101,6 +118,7 @@ export interface ProviderDriverCreateInput<Config> {
   readonly environment: ProviderInstanceEnvironment;
   readonly enabled: boolean;
   readonly config: Config;
+  readonly connection?: ResolvedProviderConnection;
 }
 
 /**

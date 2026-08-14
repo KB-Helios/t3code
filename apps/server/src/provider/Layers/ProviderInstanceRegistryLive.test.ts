@@ -25,30 +25,49 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  AuthProfileId,
   type ClaudeSettings,
   type CodexSettings,
   type CursorSettings,
+  EndpointProfileId,
   type GrokSettings,
   type OpenCodeSettings,
   ProviderDriverKind,
   type ProviderInstanceConfigMap,
   ProviderInstanceId,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
+import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerSettingsService, layer as serverSettingsLayer } from "../../serverSettings.ts";
 import { ClaudeDriver } from "../Drivers/ClaudeDriver.ts";
 import { CodexDriver } from "../Drivers/CodexDriver.ts";
 import { CursorDriver } from "../Drivers/CursorDriver.ts";
 import { GrokDriver } from "../Drivers/GrokDriver.ts";
 import { OpenCodeDriver } from "../Drivers/OpenCodeDriver.ts";
 import { OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+  type ProviderDriverCreateInput,
+  type ProviderInstance,
+} from "../ProviderDriver.ts";
+import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
+import {
+  authProfileSecretName,
+  resolveProviderConnection,
+} from "../endpoint/resolveProviderConnection.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import { makeCodexProviderAuth, ProviderAuth, ProviderAuthLive } from "./ProviderAuth.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "./ProviderEventLoggers.ts";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistryLive.ts";
 
@@ -60,6 +79,9 @@ const TestHttpClientLive = Layer.succeed(
 );
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
+
+const posixHomeGroupKey = (value: string | undefined) =>
+  value?.replaceAll("\\", "/").replace(/^((?:codex|claude):home:)[A-Za-z]:/, "$1");
 
 const BackgroundPolicyAlwaysRunLayer = Layer.mock(BackgroundPolicy.BackgroundPolicy)({
   reportClientActivity: () => Effect.void,
@@ -120,6 +142,7 @@ const makeCursorConfig = (overrides: Partial<CursorSettings>): CursorSettings =>
 const makeGrokConfig = (overrides: Partial<GrokSettings>): GrokSettings => ({
   enabled: false,
   binaryPath: "grok",
+  homePath: "",
   customModels: [],
   ...overrides,
 });
@@ -207,7 +230,7 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
       expect(personalSnapshot.instanceId).toBe(personalId);
       expect(personalSnapshot.driver).toBe(codexDriverKind);
       expect(personalSnapshot.enabled).toBe(false);
-      expect(personalSnapshot.continuation?.groupKey).toBe(
+      expect(posixHomeGroupKey(personalSnapshot.continuation?.groupKey)).toBe(
         "codex:home:/home/julius/.codex_personal",
       );
 
@@ -215,7 +238,9 @@ describe("ProviderInstanceRegistryLive — multi-instance codex slice", () => {
       expect(workSnapshot.instanceId).toBe(workId);
       expect(workSnapshot.driver).toBe(codexDriverKind);
       expect(workSnapshot.enabled).toBe(false);
-      expect(workSnapshot.continuation?.groupKey).toBe("codex:home:/home/julius/.codex");
+      expect(posixHomeGroupKey(workSnapshot.continuation?.groupKey)).toBe(
+        "codex:home:/home/julius/.codex",
+      );
 
       // Nothing goes to the unavailable bucket — both drivers are registered.
       const unavailable = yield* registry.listUnavailable;
@@ -413,13 +438,17 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
       expect(codexSnapshot.instanceId).toBe(codexId);
       expect(codexSnapshot.driver).toBe(codexDriverKind);
       expect(codexSnapshot.enabled).toBe(false);
-      expect(codexSnapshot.continuation?.groupKey).toBe("codex:home:/home/julius/.codex");
+      expect(posixHomeGroupKey(codexSnapshot.continuation?.groupKey)).toBe(
+        "codex:home:/home/julius/.codex",
+      );
 
       const claudeSnapshot = yield* claude!.snapshot.getSnapshot;
       expect(claudeSnapshot.instanceId).toBe(claudeId);
       expect(claudeSnapshot.driver).toBe(claudeDriverKind);
       expect(claudeSnapshot.enabled).toBe(false);
-      expect(claudeSnapshot.continuation?.groupKey).toBe("claude:home:/home/julius/.claude-work");
+      expect(posixHomeGroupKey(claudeSnapshot.continuation?.groupKey)).toBe(
+        "claude:home:/home/julius/.claude-work",
+      );
 
       const cursorSnapshot = yield* cursor!.snapshot.getSnapshot;
       expect(cursorSnapshot.instanceId).toBe(cursorId);
@@ -443,5 +472,281 @@ describe("ProviderInstanceRegistryLive — all drivers slice", () => {
         `${openCodeDriverKind}:instance:${openCodeId}`,
       );
     }).pipe(Effect.provide(testLayer)),
+  );
+});
+
+describe("ProviderInstanceRegistryLive — endpoint and auth profiles", () => {
+  const OMNIROUTER_ENDPOINT_ID = EndpointProfileId.make("omnirouter_prod");
+  const OMNIROUTER_AUTH_ID = AuthProfileId.make("omnirouter_kevin");
+  const MISSING_ENDPOINT_ID = EndpointProfileId.make("missing_endpoint");
+  const fakeDriverKind = ProviderDriverKind.make("codex");
+
+  const makeRecordingDriver = (created: ProviderDriverCreateInput<unknown>[]) =>
+    ({
+      driverKind: fakeDriverKind,
+      metadata: { displayName: "Recording" },
+      configSchema: Schema.Unknown,
+      defaultConfig: () => ({}),
+      create: (input) => {
+        created.push(input);
+        return Effect.succeed({
+          instanceId: input.instanceId,
+          driverKind: fakeDriverKind,
+          continuationIdentity: defaultProviderContinuationIdentity({
+            driverKind: fakeDriverKind,
+            instanceId: input.instanceId,
+          }),
+          displayName: input.displayName,
+          enabled: input.enabled,
+          snapshot: {
+            maintenanceCapabilities: makeManualOnlyProviderMaintenanceCapabilities({
+              provider: fakeDriverKind,
+              packageName: null,
+            }),
+            getSnapshot: Effect.succeed({
+              instanceId: input.instanceId,
+              driver: fakeDriverKind,
+              enabled: input.enabled,
+              installed: false,
+              version: null,
+              status: "disabled",
+              auth: { status: "unknown" },
+              checkedAt: "1970-01-01T00:00:00.000Z",
+              models: [],
+              slashCommands: [],
+              skills: [],
+            } satisfies ServerProvider),
+            refresh: Effect.succeed({} as ServerProvider),
+            streamChanges: Stream.empty,
+          },
+          adapter: {} as ProviderInstance["adapter"],
+          textGeneration: {} as ProviderInstance["textGeneration"],
+          auth: makeCodexProviderAuth({
+            instanceId: input.instanceId,
+            processEnv: {},
+            ...(input.connection !== undefined ? { connection: input.connection } : {}),
+          }),
+        } satisfies ProviderInstance);
+      },
+    }) satisfies ProviderDriver<unknown>;
+
+  const memorySecretStoreLayer = (secrets: Readonly<Record<string, string>>) =>
+    Layer.succeed(
+      ServerSecretStore.ServerSecretStore,
+      ServerSecretStore.ServerSecretStore.of({
+        get: (name) =>
+          Effect.succeed(
+            name in secrets ? Option.some(new TextEncoder().encode(secrets[name])) : Option.none(),
+          ),
+        set: () => Effect.void,
+        create: () => Effect.void,
+        getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
+        remove: () => Effect.void,
+      }),
+    );
+
+  it.live("passes a resolved connection into driver.create when both ids are set", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_omnirouter");
+      const created: ProviderDriverCreateInput<unknown>[] = [];
+      const configMap: ProviderInstanceConfigMap = {
+        [instanceId]: {
+          driver: fakeDriverKind,
+          enabled: false,
+          endpointProfileId: OMNIROUTER_ENDPOINT_ID,
+          authProfileId: OMNIROUTER_AUTH_ID,
+          config: {},
+        },
+      };
+
+      const { registry } = yield* makeProviderInstanceRegistry({
+        drivers: [makeRecordingDriver(created)],
+        configMap,
+      });
+
+      expect(created).toHaveLength(1);
+      expect(created[0]?.connection?.endpoint?.id).toBe(OMNIROUTER_ENDPOINT_ID);
+      expect(created[0]?.connection?.endpoint?.baseUrl).toBe("https://router.example/v1");
+      expect(created[0]?.connection?.auth?.id).toBe(OMNIROUTER_AUTH_ID);
+      expect(created[0]?.connection?.auth?.secret).toBe("tok_live");
+      expect(created[0]?.environment).toEqual([
+        { name: "OMNIROUTER_TOKEN", value: "tok_live", sensitive: true },
+      ]);
+
+      const instances = yield* registry.listInstances;
+      expect(instances).toHaveLength(1);
+      expect(yield* registry.listUnavailable).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        ServerConfig.layerTest(process.cwd(), {
+          prefix: "provider-instance-registry-connection-test",
+        }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              endpointProfiles: {
+                [OMNIROUTER_ENDPOINT_ID]: {
+                  name: "OmniRouter",
+                  baseUrl: "https://router.example/v1",
+                  protocol: "openai-responses",
+                  modelDiscovery: { type: "models-endpoint" },
+                },
+              },
+              authProfiles: {
+                [OMNIROUTER_AUTH_ID]: {
+                  name: "Kevin OmniRouter",
+                  method: "bearer-env",
+                  envKey: "OMNIROUTER_TOKEN",
+                  secretRedacted: true,
+                },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            memorySecretStoreLayer({
+              [authProfileSecretName(OMNIROUTER_AUTH_ID)]: "tok_live",
+            }),
+          ),
+          Layer.provideMerge(TestHttpClientLive),
+          Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        ),
+      ),
+    ),
+  );
+
+  it.live("keeps the instance available and warns when endpointProfileId is dangling", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_dangling");
+      const created: ProviderDriverCreateInput<unknown>[] = [];
+      const configMap: ProviderInstanceConfigMap = {
+        [instanceId]: {
+          driver: fakeDriverKind,
+          enabled: false,
+          endpointProfileId: MISSING_ENDPOINT_ID,
+          config: {},
+        },
+      };
+
+      const { registry } = yield* makeProviderInstanceRegistry({
+        drivers: [makeRecordingDriver(created)],
+        configMap,
+      });
+
+      expect(created).toHaveLength(1);
+      expect(created[0]?.connection?.endpoint).toBeUndefined();
+      expect(yield* registry.listUnavailable).toEqual([]);
+
+      const instance = yield* registry.getInstance(instanceId);
+      expect(instance).toBeDefined();
+      const snapshot = yield* instance!.snapshot.getSnapshot;
+      expect(snapshot.message).toBeDefined();
+      expect(snapshot.message).toContain("Endpoint profile");
+      expect(snapshot.message).toContain(MISSING_ENDPOINT_ID);
+    }).pipe(
+      Effect.provide(
+        ServerConfig.layerTest(process.cwd(), {
+          prefix: "provider-instance-registry-dangling-test",
+        }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+          Layer.provideMerge(ServerSettingsService.layerTest()),
+          Layer.provideMerge(memorySecretStoreLayer({})),
+          Layer.provideMerge(TestHttpClientLive),
+          Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        ),
+      ),
+    ),
+  );
+
+  it.live("rebuilds the instance without the auth env after providerAuth logout", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("codex_omnirouter");
+      const created: ProviderDriverCreateInput<unknown>[] = [];
+      const serverSettings = yield* ServerSettingsService;
+      yield* serverSettings.updateSettings({
+        endpointProfiles: {
+          [OMNIROUTER_ENDPOINT_ID]: {
+            name: "OmniRouter",
+            baseUrl: "https://router.example/v1",
+            protocol: "openai-responses",
+            modelDiscovery: { type: "models-endpoint" },
+          },
+        },
+        authProfiles: {
+          [OMNIROUTER_AUTH_ID]: {
+            name: "Kevin OmniRouter",
+            method: "bearer-env",
+            envKey: "OMNIROUTER_TOKEN",
+          },
+        },
+        authProfileSecrets: {
+          [OMNIROUTER_AUTH_ID]: "tok_live",
+        },
+      });
+
+      const configMap: ProviderInstanceConfigMap = {
+        [instanceId]: {
+          driver: fakeDriverKind,
+          enabled: false,
+          endpointProfileId: OMNIROUTER_ENDPOINT_ID,
+          authProfileId: OMNIROUTER_AUTH_ID,
+          config: {},
+        },
+      };
+
+      const { registry, mutator } = yield* makeProviderInstanceRegistry({
+        drivers: [makeRecordingDriver(created)],
+        configMap,
+      });
+
+      expect(created).toHaveLength(1);
+      expect(created[0]?.connection?.auth?.secret).toBe("tok_live");
+      expect(created[0]?.environment).toEqual([
+        { name: "OMNIROUTER_TOKEN", value: "tok_live", sensitive: true },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const auth = yield* ProviderAuth;
+        yield* auth.logout({ instanceId });
+      }).pipe(
+        Effect.provide(
+          ProviderAuthLive.pipe(Layer.provide(Layer.succeed(ProviderInstanceRegistry, registry))),
+        ),
+      );
+
+      const settings = yield* serverSettings.getSettings;
+      const connection = yield* resolveProviderConnection(settings, configMap[instanceId]!);
+      expect(connection.auth?.secret).toBeUndefined();
+      expect(settings.authProfiles[OMNIROUTER_AUTH_ID]?.secretRedacted).toBeUndefined();
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
+      expect(created[1]?.connection?.auth?.secret).toBeUndefined();
+      expect(created[1]?.environment).toEqual([]);
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
+    }).pipe(
+      Effect.provide(
+        serverSettingsLayer.pipe(
+          Layer.provideMerge(ServerSecretStore.layer),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "provider-instance-registry-logout-rebuild-test",
+              }),
+            ),
+          ),
+          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(BackgroundPolicyAlwaysRunLayer),
+          Layer.provideMerge(TestHttpClientLive),
+          Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
+        ),
+      ),
+    ),
   );
 });

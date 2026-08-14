@@ -41,6 +41,13 @@ orchestration, contract, or client change is required for the common case.
 
 ## How provider work is requested
 
+Interactive login is a separate RPC surface, `providerAuth.*` in [`providerAuth.ts`][provider-auth]:
+`getStatus` / `getFlow` (`orchestration:read`) and `begin` / `cancel` / `logout`
+(`orchestration:operate`). Grok `begin(device-code)` runs `grok login --device-auth` in the instance
+home and returns a verification URI plus user code. Tokens never appear on that wire. Codex API-key
+or bearer auth-profiles report authenticated when the secret is present; ChatGPT login is host-local
+browser OAuth.
+
 Clients never call a provider directly. They dispatch orchestration commands over the RPC method
 `orchestration.dispatchCommand`, defined with the rest of the orchestration surface in
 [`orchestration.ts`][contracts]. The client-dispatchable provider-facing commands are
@@ -52,6 +59,24 @@ The engine persists an event for the command, and a server-side reactor performs
 Provider output comes back as internal commands such as `thread.message.assistant.delta` and
 `thread.session.set`, which clients observe through `orchestration.subscribeThread`. See
 [overview.md](./overview.md) for the command/event loop.
+
+## Endpoint-attached configuration
+
+When an instance has an attached endpoint profile, Codex and Grok home layouts operate slightly differently:
+
+### Codex shadow home and `ensurePrivateConfigToml`
+
+For Codex instances with `endpointAttached: true`, the shadow home uses a **private** `config.toml`
+instead of a symlink to the shared one. The `ensurePrivateConfigToml` function performs a one-time
+copy from the shared `config.toml` (if it exists) to the private one only when:
+
+- The private entry is absent, or
+- The private entry is currently a symlink (which gets removed first)
+
+Once a private `config.toml` exists as a real file, subsequent edits to the shared file do **not**
+overwrite it. This preserves user changes in the private file. The
+`applyCodexEndpointConfig` function refreshes only the managed `model_providers` block inside the
+private file while leaving other user configuration intact.
 
 ## Server-side workers
 
@@ -86,6 +111,7 @@ when a request opens (approval) or user input is requested, via
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts
 [service]: ../../apps/server/src/provider/Layers/ProviderService.ts
 [contracts]: ../../packages/contracts/src/orchestration.ts
+[provider-auth]: ../../packages/contracts/src/providerAuth.ts
 [worker]: ../../packages/shared/src/DrainableWorker.ts
 [ingest]: ../../apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts
 [cmd]: ../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts

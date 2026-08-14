@@ -8,12 +8,21 @@ import * as Schema from "effect/Schema";
 import * as PlatformError from "effect/PlatformError";
 
 import { expandHomePath } from "../../pathExpansion.ts";
+import { CODEX_ENDPOINT_MANAGED_COMMENT } from "../endpoint/codexEndpointConfig.ts";
 
 export interface CodexHomeLayout {
   readonly mode: "direct" | "authOverlay";
   readonly sharedHomePath: string;
   readonly effectiveHomePath: string | undefined;
   readonly continuationKey: string;
+  readonly privateConfigToml: boolean;
+}
+
+export interface ResolveCodexHomeLayoutOptions {
+  readonly instanceId?: string;
+  /** Server state dir. Used to auto-create `<stateDir>/provider-homes/<id>/codex`. */
+  readonly stateDir?: string;
+  readonly endpointAttached?: boolean;
 }
 
 const KNOWN_SHARED_DIRECTORIES = [
@@ -32,6 +41,15 @@ const KNOWN_SHARED_DIRECTORIES = [
 const PRIVATE_ENTRY_NAMES = new Set(["auth.json", "models_cache.json"]);
 const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp"]);
 const REPLACEABLE_SHARED_RUNTIME_DIRECTORIES = new Set(["mcp-oauth-locks"]);
+const CONFIG_TOML_ENTRY = "config.toml";
+
+function privateEntryNames(layout: CodexHomeLayout): Set<string> {
+  const names = new Set(PRIVATE_ENTRY_NAMES);
+  if (layout.privateConfigToml) {
+    names.add(CONFIG_TOML_ENTRY);
+  }
+  return names;
+}
 
 function resolveHomePath(path: Path.Path, value: string | undefined): string {
   const expanded =
@@ -43,16 +61,31 @@ function resolveHomePath(path: Path.Path, value: string | undefined): string {
 
 export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(function* (
   config: CodexSettings,
+  options?: ResolveCodexHomeLayoutOptions,
 ): Effect.fn.Return<CodexHomeLayout, never, Path.Path> {
   const path = yield* Path.Path;
   const sharedHomePath = resolveHomePath(path, config.homePath);
-  const shadowHomePath = config.shadowHomePath.trim();
+  const endpointAttached = options?.endpointAttached === true;
+  let shadowHomePath = config.shadowHomePath.trim();
+  if (endpointAttached && shadowHomePath.length === 0) {
+    const instanceId = options?.instanceId?.trim() ?? "";
+    const stateDir = options?.stateDir?.trim() ?? "";
+    if (instanceId.length === 0 || stateDir.length === 0) {
+      yield* Effect.logWarning(
+        `endpointAttached request with ${instanceId.length === 0 ? "empty instanceId" : "empty stateDir"} - falling back to direct layout`,
+      );
+    }
+    if (instanceId.length > 0 && stateDir.length > 0) {
+      shadowHomePath = path.join(stateDir, "provider-homes", instanceId, "codex");
+    }
+  }
   if (shadowHomePath.length === 0) {
     return {
       mode: "direct",
       sharedHomePath,
       effectiveHomePath: config.homePath.trim().length > 0 ? sharedHomePath : undefined,
       continuationKey: `codex:home:${sharedHomePath}`,
+      privateConfigToml: false,
     };
   }
 
@@ -62,6 +95,7 @@ export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(functi
     sharedHomePath,
     effectiveHomePath,
     continuationKey: `codex:home:${sharedHomePath}`,
+    privateConfigToml: endpointAttached,
   };
 });
 
@@ -74,7 +108,14 @@ export class CodexShadowHomeFileSystemError extends Schema.TaggedErrorClass<Code
   "CodexShadowHomeFileSystemError",
   {
     ...CodexShadowHomeContext,
-    operation: Schema.Literals(["readLink", "makeDirectory", "readDirectory", "remove", "symlink"]),
+    operation: Schema.Literals([
+      "readLink",
+      "makeDirectory",
+      "readDirectory",
+      "remove",
+      "symlink",
+      "copyFile",
+    ]),
     path: Schema.String,
     targetPath: Schema.optional(Schema.String),
     entryName: Schema.optional(Schema.String),
@@ -243,6 +284,29 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
   );
 
   if (state._tag === "NotSymlink") {
+    if (input.entryName === CONFIG_TOML_ENTRY) {
+      // Restore the shared symlink when an endpoint is detached so the
+      // private managed file is not a one-way door.
+      const contents = yield* input.fileSystem
+        .readFileString(link)
+        .pipe(Effect.orElseSucceed(() => ""));
+      if (contents.includes(CODEX_ENDPOINT_MANAGED_COMMENT)) {
+        yield* input.fileSystem.remove(link).pipe(
+          Effect.catchTags({
+            PlatformError: (cause) =>
+              new CodexShadowHomeFileSystemError({
+                sharedHomePath: input.sharedHomePath,
+                effectiveHomePath: input.effectiveHomePath,
+                operation: "remove",
+                path: link,
+                entryName: input.entryName,
+                cause,
+              }),
+          }),
+        );
+        return yield* createLink;
+      }
+    }
     if (!REPLACEABLE_SHARED_RUNTIME_DIRECTORIES.has(input.entryName)) {
       return yield* new CodexShadowHomeEntryConflictError({
         sharedHomePath: input.sharedHomePath,
@@ -291,6 +355,65 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
     yield* createLink;
   }
 });
+
+const ensurePrivateConfigToml = Effect.fn("CodexHomeLayout.ensurePrivateConfigToml")(
+  function* (input: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly sharedHomePath: string;
+    readonly effectiveHomePath: string;
+  }): Effect.fn.Return<void, CodexShadowHomeError, Path.Path> {
+    const path = yield* Path.Path;
+    const configPath = path.join(input.effectiveHomePath, CONFIG_TOML_ENTRY);
+    const sharedConfigPath = path.join(input.sharedHomePath, CONFIG_TOML_ENTRY);
+    const state = yield* readLinkState({
+      ...input,
+      entryName: CONFIG_TOML_ENTRY,
+      linkPath: configPath,
+    });
+
+    if (state._tag === "NotSymlink") {
+      return;
+    }
+
+    if (state._tag === "Symlink") {
+      yield* input.fileSystem.remove(configPath).pipe(
+        Effect.catchTags({
+          PlatformError: (cause) =>
+            new CodexShadowHomeFileSystemError({
+              sharedHomePath: input.sharedHomePath,
+              effectiveHomePath: input.effectiveHomePath,
+              operation: "remove",
+              path: configPath,
+              entryName: CONFIG_TOML_ENTRY,
+              cause,
+            }),
+        }),
+      );
+    }
+
+    const sharedExists = yield* input.fileSystem
+      .exists(sharedConfigPath)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (!sharedExists) {
+      return;
+    }
+
+    yield* input.fileSystem.copyFile(sharedConfigPath, configPath).pipe(
+      Effect.catchTags({
+        PlatformError: (cause) =>
+          new CodexShadowHomeFileSystemError({
+            sharedHomePath: input.sharedHomePath,
+            effectiveHomePath: input.effectiveHomePath,
+            operation: "copyFile",
+            path: configPath,
+            targetPath: sharedConfigPath,
+            entryName: CONFIG_TOML_ENTRY,
+            cause,
+          }),
+      }),
+    );
+  },
+);
 
 const ensureShadowAuthIsPrivate = Effect.fn("CodexHomeLayout.ensureShadowAuthIsPrivate")(
   function* (input: {
@@ -358,6 +481,7 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
     { concurrency: "unbounded" },
   );
 
+  const privateEntries = privateEntryNames(layout);
   const sharedEntryNames = yield* fileSystem.readDirectory(layout.sharedHomePath).pipe(
     Effect.catchTags({
       PlatformError: (cause) =>
@@ -372,15 +496,15 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
   );
   const entries = new Set<string>(KNOWN_SHARED_DIRECTORIES);
   for (const entryName of sharedEntryNames) {
-    if (!PRIVATE_ENTRY_NAMES.has(entryName) && !SHADOW_LOCAL_ENTRY_NAMES.has(entryName)) {
+    if (!privateEntries.has(entryName) && !SHADOW_LOCAL_ENTRY_NAMES.has(entryName)) {
       entries.add(entryName);
     }
   }
 
   yield* Effect.forEach(
-    PRIVATE_ENTRY_NAMES,
+    privateEntries,
     (entryName) =>
-      entryName === "auth.json"
+      entryName === "auth.json" || entryName === CONFIG_TOML_ENTRY
         ? Effect.void
         : removePrivateSymlink({
             fileSystem,
@@ -394,7 +518,7 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
   yield* Effect.forEach(
     entries,
     (entryName) => {
-      if (PRIVATE_ENTRY_NAMES.has(entryName)) {
+      if (privateEntries.has(entryName)) {
         return Effect.void;
       }
       return ensureSymlink({
@@ -412,6 +536,14 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
     sharedHomePath: layout.sharedHomePath,
     effectiveHomePath,
   });
+
+  if (layout.privateConfigToml) {
+    yield* ensurePrivateConfigToml({
+      fileSystem,
+      sharedHomePath: layout.sharedHomePath,
+      effectiveHomePath,
+    });
+  }
 });
 
 export function codexContinuationIdentity(layout: CodexHomeLayout) {

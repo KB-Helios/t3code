@@ -83,6 +83,21 @@ export const ProviderInstanceId = slugSchema.pipe(Schema.brand("ProviderInstance
 export type ProviderInstanceId = typeof ProviderInstanceId.Type;
 
 /**
+ * `EndpointProfileId` — user-defined routing key for a reusable HTTP/API
+ * endpoint profile (base URL, protocol, discovery). Same slug rules as
+ * `ProviderInstanceId`.
+ */
+export const EndpointProfileId = slugSchema.pipe(Schema.brand("EndpointProfileId"));
+export type EndpointProfileId = typeof EndpointProfileId.Type;
+
+/**
+ * `AuthProfileId` — user-defined routing key for a reusable auth profile
+ * (method + env key metadata). Same slug rules as `ProviderInstanceId`.
+ */
+export const AuthProfileId = slugSchema.pipe(Schema.brand("AuthProfileId"));
+export type AuthProfileId = typeof AuthProfileId.Type;
+
+/**
  * Lightweight reference identifying which driver implements an instance.
  * Carried alongside `ProviderInstanceId` on wire shapes so consumers can
  * branch on driver behavior (icons, capabilities, presentation) without
@@ -127,6 +142,8 @@ export const ProviderInstanceConfig = Schema.Struct({
   accentColor: Schema.optional(TrimmedNonEmptyString),
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
+  endpointProfileId: Schema.optionalKey(EndpointProfileId),
+  authProfileId: Schema.optionalKey(AuthProfileId),
   config: Schema.optionalKey(Schema.Unknown),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;

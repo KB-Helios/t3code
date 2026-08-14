@@ -15,6 +15,8 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  type AuthProfile,
+  type AuthProfileId,
   type ModelSelection,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
@@ -51,6 +53,7 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import { authProfileSecretName } from "./provider/endpoint/resolveProviderConnection.ts";
 
 export { resolveSourceControlWriterModelSelection } from "@t3tools/shared/serverSettings";
 
@@ -97,6 +100,15 @@ function redactProviderEnvironmentVariable(
   };
 }
 
+function redactAuthProfile(profile: AuthProfile & { readonly secret?: string }): AuthProfile {
+  const { secret, ...rest } = profile;
+  const hasSecret = secret !== undefined && secret.length > 0;
+  return {
+    ...rest,
+    ...(hasSecret || rest.secretRedacted ? { secretRedacted: true } : {}),
+  };
+}
+
 export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
   const providerInstances = Object.fromEntries(
     Object.entries(settings.providerInstances).map(([instanceId, instance]) => [
@@ -109,7 +121,13 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
         : instance,
     ]),
   );
-  return { ...settings, providerInstances };
+  const authProfiles = Object.fromEntries(
+    Object.entries(settings.authProfiles).map(([profileId, profile]) => [
+      profileId,
+      redactAuthProfile(profile),
+    ]),
+  ) as ServerSettings["authProfiles"];
+  return { ...settings, providerInstances, authProfiles };
 }
 
 export class ServerSettingsService extends Context.Service<
@@ -251,7 +269,7 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
 }
 
 const make = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig.ServerConfig;
+  const { settingsPath, secretsDir } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -476,6 +494,88 @@ const make = Effect.gen(function* () {
       };
     });
 
+  const persistAuthProfileSecrets = (
+    current: ServerSettings,
+    next: ServerSettings,
+    secrets: Readonly<Record<AuthProfileId, string>> | undefined,
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    Effect.gen(function* () {
+      const nextIds = new Set(Object.keys(next.authProfiles));
+      const authProfiles: Record<string, AuthProfile> = { ...next.authProfiles };
+
+      if (secrets !== undefined && Object.keys(secrets).length > 0) {
+        yield* fs
+          .makeDirectory(pathService.join(secretsDir, "auth-profile"), { recursive: true })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({
+                  settingsPath,
+                  operation: "write-secret",
+                  cause,
+                }),
+            ),
+          );
+
+        for (const [rawId, value] of Object.entries(secrets)) {
+          if (!nextIds.has(rawId)) continue;
+          const secretName = authProfileSecretName(rawId as AuthProfileId);
+          if (value.length > 0) {
+            yield* secretStore.set(secretName, textEncoder.encode(value)).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ServerSettingsError({
+                    settingsPath,
+                    operation: "write-secret",
+                    cause,
+                  }),
+              ),
+            );
+            const existing = authProfiles[rawId];
+            if (existing !== undefined) {
+              authProfiles[rawId] = { ...existing, secretRedacted: true };
+            }
+            continue;
+          }
+
+          yield* secretStore.remove(secretName).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({
+                  settingsPath,
+                  operation: "remove-secret",
+                  cause,
+                }),
+            ),
+          );
+          const existing = authProfiles[rawId];
+          if (existing !== undefined) {
+            const { secretRedacted: _omit, ...rest } = existing;
+            authProfiles[rawId] = rest;
+          }
+        }
+      }
+
+      for (const previousId of Object.keys(current.authProfiles)) {
+        if (nextIds.has(previousId)) continue;
+        yield* secretStore.remove(authProfileSecretName(previousId as AuthProfileId)).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ServerSettingsError({
+                settingsPath,
+                operation: "remove-stale-secret",
+                cause,
+              }),
+          ),
+        );
+      }
+
+      return {
+        ...next,
+        authProfiles: authProfiles as ServerSettings["authProfiles"],
+      };
+    });
+
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
@@ -579,9 +679,14 @@ const make = Effect.gen(function* () {
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const nextPersisted = yield* persistProviderEnvironmentSecrets(
+          const { authProfileSecrets, ...settingsPatch } = patch;
+          const nextPersisted = yield* persistAuthProfileSecrets(
             current,
-            applyServerSettingsPatch(current, patch),
+            yield* persistProviderEnvironmentSecrets(
+              current,
+              applyServerSettingsPatch(current, settingsPatch),
+            ),
+            authProfileSecrets,
           );
           const next = yield* normalizeServerSettings(nextPersisted);
           yield* writeSettingsAtomically(next);
