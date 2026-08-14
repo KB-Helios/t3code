@@ -674,4 +674,3 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(ProviderAuth, make);
-export { layer as ProviderAuthLive };
