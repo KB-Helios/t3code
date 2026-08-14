@@ -68,8 +68,8 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
           isolated: true,
         };
       }
-      Effect.logWarning(
-        "Endpoint-attached instance resolved to shared home path - cannot fall back to shared home",
+      yield* Effect.logWarning(
+        "Endpoint-attached instance resolved to shared home path - falling back to provider-owned path",
       );
       return {
         sharedHomePath,
