@@ -114,6 +114,9 @@ export function ProviderAuthControls(props: {
   if (model.browser) {
     return (
       <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+        {commandError ? (
+          <p className="w-full text-destructive">{commandError}</p>
+        ) : null}
         <span>{model.browser.message}</span>
         {model.canCancel && pendingFlowId ? (
           <Button
