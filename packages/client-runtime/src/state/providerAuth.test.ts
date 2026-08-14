@@ -58,14 +58,36 @@ describe("providerAuthControlsModel", () => {
     expect(model.canSignOut).toBe(false);
   });
 
-  it("offers Sign out when authenticated", () => {
+  it("offers Sign out only when logout can delete an api-key secret", () => {
     const model = providerAuthControlsModel({
       state: "authenticated",
       account: "ada@example.com",
+      methods: ["api-key"],
     });
     expect(model.canSignOut).toBe(true);
     expect(model.account).toBe("ada@example.com");
     expect(model.canSignIn).toBe(false);
+  });
+
+  it("hides Sign out for snapshot-only and host-local browser auth", () => {
+    expect(
+      providerAuthControlsModel({
+        state: "authenticated",
+        account: "ada@example.com",
+      }).canSignOut,
+    ).toBe(false);
+    expect(
+      providerAuthControlsModel({
+        state: "authenticated",
+        methods: ["browser"],
+      }).canSignOut,
+    ).toBe(false);
+    expect(
+      providerAuthControlsModel({
+        state: "authenticated",
+        methods: ["device-code"],
+      }).canSignOut,
+    ).toBe(false);
   });
 
   it("does not treat API-key-only methods as an interactive sign-in", () => {

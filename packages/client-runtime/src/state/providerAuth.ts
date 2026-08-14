@@ -6,7 +6,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import {
@@ -168,7 +168,7 @@ export function providerAuthControlsModel(
   if (state.state === "authenticated") {
     return {
       canSignIn: false,
-      canSignOut: true,
+      canSignOut: state.methods?.includes("api-key") === true,
       canCancel: false,
       signInMethod: undefined,
       account: state.account,

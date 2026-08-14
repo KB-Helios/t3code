@@ -266,14 +266,26 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const clearInstanceFlows = (instanceId: ProviderInstanceId) =>
+  const killTracked = (flow: RegisteredFlow) =>
+    flow.kill().pipe(
+      Effect.catch(() => Effect.void),
+      Effect.asVoid,
+    );
+
+  const retireInstanceFlows = (instanceId: ProviderInstanceId) =>
     readFlows.pipe(
       Effect.flatMap((flows) => {
         const next = new Map(flows);
+        const retiring: RegisteredFlow[] = [];
         for (const [id, flow] of next) {
-          if (flow.instanceId === instanceId) next.delete(id);
+          if (flow.instanceId === instanceId) {
+            retiring.push(flow);
+            next.delete(id);
+          }
         }
-        return writeFlows(next);
+        return Effect.forEach(retiring, killTracked, { discard: true }).pipe(
+          Effect.andThen(writeFlows(next)),
+        );
       }),
     );
 
@@ -289,12 +301,6 @@ const make = Effect.gen(function* () {
             )
           : Effect.succeed(instance),
       ),
-    );
-
-  const killTracked = (flow: RegisteredFlow) =>
-    flow.kill().pipe(
-      Effect.catch(() => Effect.void),
-      Effect.asVoid,
     );
 
   const collectDeviceCode = (stdout: Stream.Stream<Uint8Array>) => {
@@ -418,41 +424,46 @@ const make = Effect.gen(function* () {
       };
       let kill: () => Effect.Effect<void> = () => Effect.void;
       let pid: number | undefined;
-      if ((input.binaryPath ?? "codex").trim().length > 0) {
-        const child = yield* spawner
-          .spawn(
-            ChildProcess.make(input.binaryPath || "codex", ["login"], {
-              env: input.processEnv,
-            }),
-          )
-          .pipe(Effect.option);
-        if (Option.isSome(child)) {
-          pid = Number(child.value.pid);
-          kill = () => child.value.kill().pipe(Effect.asVoid);
-          yield* child.value.exitCode.pipe(
-            Effect.matchCauseEffect({
-              onFailure: () => Effect.void,
-              onSuccess: (code) =>
-                getRegistered(String(flowId)).pipe(
-                  Effect.flatMap((current) => {
-                    if (current === undefined || current.cancelled) return Effect.void;
-                    return Number(code) === 0
-                      ? updateFlow(String(flowId), {
-                          state: { state: "authenticated", methods: ["browser"] },
-                        })
-                      : updateFlow(String(flowId), {
-                          state: {
-                            state: "error",
-                            message: `Codex login exited with code ${Number(code)}`,
-                          },
-                        });
-                  }),
-                ),
-            }),
-            Effect.forkDetach,
-          );
-        }
-      }
+      const child = yield* spawner
+        .spawn(
+          ChildProcess.make(input.binaryPath || "codex", ["login"], {
+            env: input.processEnv,
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAuthError({
+                message: "Failed to start Codex login",
+                instanceId: input.instanceId,
+                cause,
+              }),
+          ),
+        );
+      pid = Number(child.pid);
+      kill = () => child.kill().pipe(Effect.asVoid);
+      yield* child.exitCode.pipe(
+        Effect.matchCauseEffect({
+          onFailure: () => Effect.void,
+          onSuccess: (code) =>
+            getRegistered(String(flowId)).pipe(
+              Effect.flatMap((current) => {
+                if (current === undefined || current.cancelled) return Effect.void;
+                return Number(code) === 0
+                  ? updateFlow(String(flowId), {
+                      state: { state: "authenticated", methods: ["browser"] },
+                    })
+                  : updateFlow(String(flowId), {
+                      state: {
+                        state: "error",
+                        message: `Codex login exited with code ${Number(code)}`,
+                      },
+                    });
+              }),
+            ),
+        }),
+        Effect.forkDetach,
+      );
       yield* putFlow({
         flowId,
         instanceId: input.instanceId,
@@ -510,7 +521,9 @@ const make = Effect.gen(function* () {
       if (
         flow !== undefined &&
         !isExpired(flow.state, nowIso) &&
-        (flow.state.state === "pending" || flow.state.state === "error")
+        (flow.state.state === "pending" ||
+          flow.state.state === "error" ||
+          flow.state.state === "authenticated")
       ) {
         return flow.state;
       }
@@ -524,10 +537,8 @@ const make = Effect.gen(function* () {
       if (instance.auth !== undefined) {
         const status = yield* instance.auth.getStatus();
         if (status.state === "authenticated") return status;
-        if (flow !== undefined && flow.state.state === "authenticated") return flow.state;
         return status;
       }
-      if (flow !== undefined && flow.state.state === "authenticated") return flow.state;
       const snapshot = yield* instance.snapshot.getSnapshot;
       return snapshotAuthState(snapshot);
     });
@@ -535,11 +546,7 @@ const make = Effect.gen(function* () {
   const begin: ProviderAuthShape["begin"] = (input) =>
     Effect.gen(function* () {
       const instance = yield* requireInstance(input.instanceId);
-      const existing = yield* flowForInstance(input.instanceId);
-      if (existing !== undefined && existing.state.state === "pending") {
-        yield* killTracked(existing);
-        yield* updateFlow(String(existing.flowId), { cancelled: true });
-      }
+      yield* retireInstanceFlows(input.instanceId);
       const grok = instance.auth !== undefined ? grokAuthConfigs.get(instance.auth) : undefined;
       if (grok !== undefined) {
         const method = input.method ?? "device-code";
@@ -631,10 +638,7 @@ const make = Effect.gen(function* () {
         yield* instance.auth.logout();
       }
       const flow = yield* flowForInstance(input.instanceId);
-      if (flow !== undefined) {
-        yield* killTracked(flow);
-      }
-      yield* clearInstanceFlows(input.instanceId);
+      yield* retireInstanceFlows(input.instanceId);
     });
 
   return ProviderAuth.of({ getStatus, begin, getFlow, cancel, logout });

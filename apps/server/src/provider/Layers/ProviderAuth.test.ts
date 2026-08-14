@@ -1,14 +1,17 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
   AuthProfileId,
+  ProviderAuthError,
   ProviderAuthState,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -40,11 +43,17 @@ function fakeHandle(input: {
   readonly pid: number;
   readonly stdout: string;
   readonly hang?: boolean;
+  readonly exitCode?: number;
+  readonly exit?: Effect.Effect<ChildProcessSpawner.ExitCode>;
   readonly killed: { value: boolean; pid?: number };
 }) {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(input.pid),
-    exitCode: input.hang ? Effect.never : Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+    exitCode:
+      input.exit ??
+      (input.hang
+        ? Effect.never
+        : Effect.succeed(ChildProcessSpawner.ExitCode(input.exitCode ?? 0))),
     isRunning: Effect.sync(() => !input.killed.value),
     kill: () =>
       Effect.sync(() => {
@@ -309,4 +318,163 @@ describe("ProviderAuth", () => {
       ),
     );
   });
+
+  const awaitStatus = (
+    auth: (typeof ProviderAuth)["Service"],
+    instanceId: ProviderInstanceId,
+    match: (state: ProviderAuthState) => boolean,
+  ) =>
+    Effect.gen(function* () {
+      for (let attempt = 0; attempt < 32; attempt++) {
+        const status = yield* auth.getStatus({ instanceId });
+        if (match(status)) return status;
+        yield* Effect.yieldNow;
+      }
+      return yield* auth.getStatus({ instanceId });
+    });
+
+  it.effect("begin after a failed Grok login replaces the error flow", () =>
+    Effect.gen(function* () {
+      const firstExit = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
+      let calls = 0;
+      yield* Effect.gen(function* () {
+        const auth = yield* ProviderAuth;
+        const pending = yield* auth.begin({ instanceId: grokId, method: "device-code" });
+        expect(pending.state).toBe("pending");
+        if (pending.state === "pending" && pending.method === "device-code") {
+          expect(pending.userCode).toBe("ABCD-EFGH");
+        }
+        yield* Deferred.succeed(firstExit, ChildProcessSpawner.ExitCode(1));
+        const errored = yield* awaitStatus(auth, grokId, (state) => state.state === "error");
+        expect(errored.state).toBe("error");
+        const retry = yield* auth.begin({ instanceId: grokId, method: "device-code" });
+        expect(retry.state).toBe("pending");
+        if (retry.state === "pending" && retry.method === "device-code") {
+          expect(retry.userCode).toBe("WXYZ-1234");
+        }
+        const status = yield* auth.getStatus({ instanceId: grokId });
+        expect(status.state).toBe("pending");
+        if (status.state === "pending" && status.method === "device-code") {
+          expect(status.userCode).toBe("WXYZ-1234");
+        }
+      }).pipe(
+        Effect.provide(
+          providerAuthLayer({
+            instances: [grokInstance],
+            spawn: () => {
+              calls += 1;
+              return Effect.succeed(
+                fakeHandle(
+                  calls === 1
+                    ? {
+                        pid: 11,
+                        stdout: "Visit https://x.ai/device and enter ABCD-EFGH",
+                        exit: Deferred.await(firstExit),
+                        killed: { value: false },
+                      }
+                    : {
+                        pid: 12,
+                        stdout: "Visit https://x.ai/device and enter WXYZ-1234",
+                        hang: true,
+                        killed: { value: false },
+                      },
+                ),
+              );
+            },
+          }),
+        ),
+      );
+    }),
+  );
+
+  it.effect("prefers a completed device-code flow over an empty auth-profile store", () =>
+    Effect.gen(function* () {
+      const done = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
+      yield* Effect.gen(function* () {
+        const auth = yield* ProviderAuth;
+        const pending = yield* auth.begin({ instanceId: grokId, method: "device-code" });
+        expect(pending.state).toBe("pending");
+        yield* Deferred.succeed(done, ChildProcessSpawner.ExitCode(0));
+        const status = yield* awaitStatus(auth, grokId, (state) => state.state === "authenticated");
+        expect(status).toMatchObject({
+          state: "authenticated",
+          methods: ["device-code"],
+        });
+      }).pipe(
+        Effect.provide(
+          providerAuthLayer({
+            instances: [
+              stubInstance({
+                instanceId: grokId,
+                driverKind: grokDriver,
+                auth: makeGrokProviderAuth({
+                  instanceId: grokId,
+                  binaryPath: "grok",
+                  processEnv: { GROK_HOME: "/tmp/grok-home" },
+                  connection: {
+                    auth: {
+                      id: authProfileId,
+                      name: "OmniRouter",
+                      method: "api-key-env",
+                      envKey: "XAI_API_KEY",
+                    },
+                  },
+                }),
+              }),
+            ],
+            spawn: () =>
+              Effect.succeed(
+                fakeHandle({
+                  pid: 33,
+                  stdout: "Visit https://x.ai/device and enter ABCD-EFGH",
+                  exit: Deferred.await(done),
+                  killed: { value: false },
+                }),
+              ),
+          }),
+        ),
+      );
+    }),
+  );
+
+  it.effect("Codex begin(browser) fails when spawn fails", () =>
+    Effect.gen(function* () {
+      const auth = yield* ProviderAuth;
+      const result = yield* auth
+        .begin({ instanceId: codexId, method: "browser" })
+        .pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toBeInstanceOf(ProviderAuthError);
+        expect(result.failure.message).toContain("Failed to start Codex login");
+      }
+      const status = yield* auth.getStatus({ instanceId: codexId });
+      expect(status.state).not.toBe("pending");
+    }).pipe(
+      Effect.provide(
+        providerAuthLayer({
+          instances: [
+            stubInstance({
+              instanceId: codexId,
+              driverKind: codexDriver,
+              auth: makeCodexProviderAuth({
+                instanceId: codexId,
+                binaryPath: "codex",
+                processEnv: {},
+              }),
+            }),
+          ],
+          spawn: () =>
+            Effect.fail(
+              PlatformError.systemError({
+                _tag: "NotFound",
+                module: "ChildProcess",
+                method: "spawn",
+                description: "codex",
+              }),
+            ),
+        }),
+      ),
+    ),
+  );
 });
