@@ -71,7 +71,7 @@ export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(functi
     const instanceId = options?.instanceId?.trim() ?? "";
     const stateDir = options?.stateDir?.trim() ?? "";
     if (instanceId.length === 0 || stateDir.length === 0) {
-      Effect.logWarning(
+      yield* Effect.logWarning(
         `endpointAttached request with ${instanceId.length === 0 ? "empty instanceId" : "empty stateDir"} - falling back to direct layout`,
       );
     }
