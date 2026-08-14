@@ -5,6 +5,7 @@ import {
   type ProviderInstanceId,
   WS_METHODS,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 
@@ -202,5 +203,46 @@ export function providerAuthControlsModel(
 }
 
 export function serializedProviderAuthContainsSecret(payload: unknown, secret: string): boolean {
-  return JSON.stringify(payload).includes(secret);
+  const serialized = JSON.stringify(payload);
+  if (serialized === undefined) {
+    return false;
+  }
+  return serialized.includes(secret);
+}
+
+export function commandFailureMessage(cause: Cause.Cause<unknown>): string {
+  const squashed = Cause.squash(cause);
+  if (
+    squashed !== null &&
+    typeof squashed === "object" &&
+    "message" in squashed &&
+    typeof squashed.message === "string" &&
+    squashed.message.trim().length > 0
+  ) {
+    return squashed.message;
+  }
+  return "Provider sign-in failed";
+}
+
+export function createAuthCommandRunner(
+  registry: AtomRegistry.AtomRegistry,
+  statusAtom: Atom.Atom<unknown>,
+  setBusy: (busy: boolean) => void,
+  setCommandError: (error: string | undefined) => void,
+) {
+  return async (
+    work: () => Promise<{ readonly _tag: string; readonly cause?: Cause.Cause<unknown> }>,
+  ) => {
+    setBusy(true);
+    setCommandError(undefined);
+    try {
+      const result = await work();
+      registry.refresh(statusAtom);
+      if (result._tag === "Failure" && result.cause !== undefined) {
+        setCommandError(commandFailureMessage(result.cause));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 }

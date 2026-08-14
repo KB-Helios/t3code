@@ -522,5 +522,51 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           expect(layout.sharedHomePath).toBe(sharedHome);
         }),
     );
+
+    it.effect(
+      "falls back to direct layout and logs warning when endpointAttached has empty instanceId",
+      () =>
+        Effect.gen(function* () {
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const stateDir = yield* makeTempDir("t3code-state-");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+            }),
+            {
+              instanceId: "",
+              stateDir,
+              endpointAttached: true,
+            },
+          );
+
+          expect(layout.mode).toBe("direct");
+          expect(layout.privateConfigToml).toBe(false);
+        }),
+    );
+
+    it.effect(
+      "falls back to direct layout and logs warning when endpointAttached has empty stateDir",
+      () =>
+        Effect.gen(function* () {
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const instanceId = ProviderInstanceId.make("codex_omni");
+
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({
+              homePath: sharedHome,
+            }),
+            {
+              instanceId,
+              stateDir: "",
+              endpointAttached: true,
+            },
+          );
+
+          expect(layout.mode).toBe("direct");
+          expect(layout.privateConfigToml).toBe(false);
+        }),
+    );
   });
 });

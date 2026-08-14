@@ -45,7 +45,16 @@ export class CodexEndpointConfigFileSystemError extends Schema.TaggedErrorClass<
 }
 
 function escapeTomlBasicString(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\t", "\\t")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, (char) => {
+      const code = char.charCodeAt(0);
+      return `\\u${code.toString(16).padStart(4, "0")}`;
+    });
 }
 
 function isTableHeader(line: string): boolean {
@@ -72,32 +81,39 @@ function stripManagedCodexEndpointTables(toml: string): string {
   const lines = toml.split(/\r?\n/);
   const kept: string[] = [];
   let inTable = false;
+  let inManagedContext = false;
   let index = 0;
   while (index < lines.length) {
     const line = lines[index]!;
     const trimmed = line.trim();
 
-    if (trimmed === CODEX_ENDPOINT_MANAGED_COMMENT) {
-      index += 1;
-      continue;
-    }
-
     if (isTableHeader(line)) {
       if (isNorthbridgeProviderTable(line)) {
+        inManagedContext = true;
         index += 1;
         while (index < lines.length) {
           const next = lines[index]!;
-          if (next.trim() === CODEX_ENDPOINT_MANAGED_COMMENT || isTableHeader(next)) {
+          if (isTableHeader(next)) {
             break;
           }
           index += 1;
         }
+        inManagedContext = false;
         continue;
       }
       inTable = true;
+      inManagedContext = false;
       kept.push(line);
       index += 1;
       continue;
+    }
+
+    if (trimmed === CODEX_ENDPOINT_MANAGED_COMMENT) {
+      if (!inTable || inManagedContext) {
+        inManagedContext = true;
+        index += 1;
+        continue;
+      }
     }
 
     if (!inTable && isTopLevelModelProviderAssignment(line)) {
@@ -211,14 +227,29 @@ export const applyCodexEndpointConfig = Effect.fn("applyCodexEndpointConfig")(fu
         }),
     }),
   );
-  yield* fileSystem.writeFileString(configPath, next).pipe(
+
+  const tempPath = path.join(path.dirname(configPath), `.config.toml.tmp.${Date.now()}`);
+  yield* fileSystem.writeFileString(tempPath, next).pipe(
     Effect.catchTags({
       PlatformError: (cause) =>
         new CodexEndpointConfigFileSystemError({
-          path: configPath,
+          path: tempPath,
           operation: "writeFile",
           cause,
         }),
+    }),
+  );
+
+  yield* fileSystem.rename(tempPath, configPath).pipe(
+    Effect.catchTags({
+      PlatformError: (cause) => {
+        fileSystem.remove(tempPath).pipe(Effect.orDie, Effect.runPromise);
+        return new CodexEndpointConfigFileSystemError({
+          path: configPath,
+          operation: "writeFile",
+          cause,
+        });
+      },
     }),
   );
 });

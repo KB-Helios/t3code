@@ -1,4 +1,4 @@
-import { AuthProfileId, EndpointProfileId, type EndpointProtocol } from "@t3tools/contracts";
+import { EndpointProfileId, type EndpointProtocol } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -6,30 +6,7 @@ import {
   northbridgeGrokModelTable,
   upsertGrokEndpointToml,
 } from "./grokEndpointConfig.ts";
-import type { ResolvedProviderConnection } from "./resolveProviderConnection.ts";
-
-const OMNIROUTER_ENDPOINT_ID = EndpointProfileId.make("omnirouter_prod");
-const OMNIROUTER_AUTH_ID = AuthProfileId.make("omnirouter_kevin");
-
-const omnirouterConnection = (
-  overrides: Partial<ResolvedProviderConnection> = {},
-): ResolvedProviderConnection => ({
-  endpoint: {
-    id: OMNIROUTER_ENDPOINT_ID,
-    name: "OmniRouter",
-    baseUrl: "https://router.example/v1",
-    protocol: "openai-responses",
-    modelDiscovery: { type: "models-endpoint" },
-  },
-  auth: {
-    id: OMNIROUTER_AUTH_ID,
-    name: "Kevin OmniRouter",
-    method: "bearer-env",
-    envKey: "OMNIROUTER_TOKEN",
-    secret: "tok_live",
-  },
-  ...overrides,
-});
+import { OMNIROUTER_ENDPOINT_ID, OMNIROUTER_AUTH_ID, omnirouterConnection } from "./testFixtures.ts";
 
 describe("apiBackendForEndpointProtocol", () => {
   it.each([

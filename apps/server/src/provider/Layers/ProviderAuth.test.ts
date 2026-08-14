@@ -223,7 +223,7 @@ describe("ProviderAuth", () => {
     ),
   );
 
-  it.effect("cancel kills only the tracked login PID", () => {
+  it.effect("cancel kills only the tracked login PID and returns unauthenticated", () => {
     const killed = { value: false, pid: undefined as number | undefined };
     return Effect.gen(function* () {
       const auth = yield* ProviderAuth;
@@ -233,7 +233,10 @@ describe("ProviderAuth", () => {
       const cancelled = yield* auth.cancel({ flowId: pending.flowId });
       expect(killed.value).toBe(true);
       expect(killed.pid).toBe(9191);
-      expect(cancelled.state === "unauthenticated" || cancelled.state === "error").toBe(true);
+      expect(cancelled).toMatchObject({
+        state: "unauthenticated",
+        methods: ["device-code"],
+      });
     }).pipe(
       Effect.provide(
         providerAuthLayer({
@@ -253,6 +256,65 @@ describe("ProviderAuth", () => {
               }),
             );
           },
+        }),
+      ),
+    );
+  });
+
+  it.effect("cancel on an instance with an API-key secret does not return unauthenticated", () => {
+    const killed = { value: false };
+    const secretName = authProfileSecretName(authProfileId);
+    const secrets = new Map<string, Uint8Array>([[secretName, encoder.encode("sk-test-key")]]);
+    const store = ServerSecretStore.ServerSecretStore.of({
+      get: (name) =>
+        Effect.succeed(secrets.has(name) ? Option.some(secrets.get(name)!) : Option.none()),
+      set: () => Effect.void,
+      create: () => Effect.void,
+      getOrCreateRandom: () => Effect.die("unused"),
+      remove: () => Effect.void,
+    });
+
+    return Effect.gen(function* () {
+      const auth = yield* ProviderAuth;
+      const pending = yield* auth.begin({ instanceId: grokId, method: "device-code" });
+      expect(pending.state).toBe("pending");
+      if (pending.state !== "pending") return;
+      const cancelled = yield* auth.cancel({ flowId: pending.flowId });
+      expect(killed.value).toBe(true);
+      expect(cancelled.state).not.toBe("unauthenticated");
+    }).pipe(
+      Effect.provide(
+        providerAuthLayer({
+          instances: [
+            stubInstance({
+              instanceId: grokId,
+              driverKind: grokDriver,
+              auth: makeGrokProviderAuth({
+                instanceId: grokId,
+                binaryPath: "grok",
+                processEnv: {},
+                connection: {
+                  auth: {
+                    id: authProfileId,
+                    name: "Test",
+                    method: "api-key-env",
+                    envKey: "TEST_API_KEY",
+                    secret: "sk-test-key",
+                  },
+                },
+              }),
+            }),
+          ],
+          spawn: () =>
+            Effect.succeed(
+              fakeHandle({
+                pid: 1111,
+                stdout: "Visit https://x.ai/device and enter TEST-CODE",
+                hang: true,
+                killed,
+              }),
+            ),
+          secretStore: store,
         }),
       ),
     );

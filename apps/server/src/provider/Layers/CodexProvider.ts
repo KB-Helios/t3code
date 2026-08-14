@@ -476,9 +476,12 @@ export function endpointAuthSuppressesCodexLogin(
   connection: ResolvedProviderConnection | undefined,
 ): connection is ResolvedProviderConnection & {
   readonly endpoint: NonNullable<ResolvedProviderConnection["endpoint"]>;
+  readonly auth: NonNullable<ResolvedProviderConnection["auth"]>;
 } {
-  if (connection?.endpoint === undefined) return false;
-  const method = connection.auth?.method;
+  if (connection?.endpoint === undefined || connection.auth === undefined) return false;
+  const method = connection.auth.method;
+  if (method === undefined) return false;
+  if (method === "none") return true;
   return method !== "oauth-browser" && method !== "oauth-device";
 }
 

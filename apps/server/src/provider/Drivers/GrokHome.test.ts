@@ -7,15 +7,10 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import {
-  AuthProfileId,
-  EndpointProfileId,
-  GrokSettings,
-  ProviderInstanceId,
-} from "@t3tools/contracts";
+import { GrokSettings, ProviderInstanceId } from "@t3tools/contracts";
 
 import { applyGrokEndpointConfig } from "../endpoint/grokEndpointConfig.ts";
-import type { ResolvedProviderConnection } from "../endpoint/resolveProviderConnection.ts";
+import { omnirouterConnection } from "../endpoint/testFixtures.ts";
 import {
   GROK_HOME_ENV,
   makeGrokEnvironment,
@@ -24,29 +19,6 @@ import {
 } from "./GrokHome.ts";
 
 const decodeGrokSettings = Schema.decodeSync(GrokSettings);
-
-const OMNIROUTER_ENDPOINT_ID = EndpointProfileId.make("omnirouter_prod");
-const OMNIROUTER_AUTH_ID = AuthProfileId.make("omnirouter_kevin");
-
-const omnirouterConnection = (
-  overrides: Partial<ResolvedProviderConnection> = {},
-): ResolvedProviderConnection => ({
-  endpoint: {
-    id: OMNIROUTER_ENDPOINT_ID,
-    name: "OmniRouter",
-    baseUrl: "https://router.example/v1",
-    protocol: "openai-responses",
-    modelDiscovery: { type: "models-endpoint" },
-  },
-  auth: {
-    id: OMNIROUTER_AUTH_ID,
-    name: "Kevin OmniRouter",
-    method: "bearer-env",
-    envKey: "OMNIROUTER_TOKEN",
-    secret: "tok_live",
-  },
-  ...overrides,
-});
 
 const makeTempDir = Effect.fn("GrokHome.test.makeTempDir")(function* (prefix: string) {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -119,34 +91,31 @@ it.layer(NodeServices.layer)("GrokHome", (it) => {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const stateDir = yield* makeTempDir("t3code-grok-state-");
+        const tempSharedHome = yield* makeTempDir("t3code-grok-shared-");
         const instanceId = ProviderInstanceId.make("grok_omni");
-        const globalConfigPath = path.join(NodeOS.homedir(), ".grok", "config.toml");
-        const globalBefore = yield* fileSystem
-          .readFileString(globalConfigPath)
-          .pipe(Effect.orElseSucceed(() => null));
 
-        const isolatedLayout = yield* resolveGrokHomeLayout(decodeGrokSettings({}), {
-          instanceId,
-          stateDir,
-          endpointAttached: true,
-        });
+        const isolatedLayout = yield* resolveGrokHomeLayout(
+          decodeGrokSettings({ homePath: "" }),
+          {
+            instanceId,
+            stateDir,
+            endpointAttached: true,
+          },
+        );
 
         yield* materializeGrokHome(isolatedLayout);
         yield* applyGrokEndpointConfig(isolatedLayout, omnirouterConnection());
 
-        const globalAfter = yield* fileSystem
-          .readFileString(globalConfigPath)
-          .pipe(Effect.orElseSucceed(() => null));
-        expect(globalAfter).toBe(globalBefore);
+        const sharedConfigPath = path.join(tempSharedHome, "config.toml");
+        const sharedExists = yield* fileSystem.exists(sharedConfigPath);
+        expect(sharedExists).toBe(false);
 
         const instanceConfig = path.join(isolatedLayout.effectiveHomePath!, "config.toml");
         const instanceContents = yield* fileSystem.readFileString(instanceConfig);
         expect(instanceContents).toContain("[model.northbridge_omnirouter_prod]");
         expect(instanceContents).not.toContain("tok_live");
 
-        expect(isolatedLayout.effectiveHomePath).not.toBe(
-          path.resolve(path.join(NodeOS.homedir(), ".grok")),
-        );
+        expect(isolatedLayout.effectiveHomePath).not.toBe(tempSharedHome);
       }),
   );
 });

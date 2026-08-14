@@ -116,7 +116,13 @@ const loadSettingsForConnection = Effect.gen(function* () {
   const settingsService = yield* Effect.serviceOption(ServerSettingsService);
   return yield* Option.match(settingsService, {
     onNone: () => Effect.succeed(undefined),
-    onSome: (service) => service.getSettings.pipe(Effect.orElseSucceed(() => undefined)),
+    onSome: (service) =>
+      service.getSettings.pipe(
+        Effect.tapError((error) =>
+          Effect.logError("Failed to load settings for provider connection", error),
+        ),
+        Effect.orElseSucceed(() => undefined),
+      ),
   });
 });
 

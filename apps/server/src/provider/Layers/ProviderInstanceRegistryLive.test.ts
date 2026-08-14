@@ -724,6 +724,9 @@ describe("ProviderInstanceRegistryLive — endpoint and auth profiles", () => {
       expect(created).toHaveLength(2);
       expect(created[1]?.connection?.auth?.secret).toBeUndefined();
       expect(created[1]?.environment).toEqual([]);
+
+      yield* mutator.reconcile(configMap);
+      expect(created).toHaveLength(2);
     }).pipe(
       Effect.provide(
         serverSettingsLayer.pipe(

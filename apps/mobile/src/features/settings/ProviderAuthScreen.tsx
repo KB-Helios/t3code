@@ -1,8 +1,10 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { providerAuthControlsModel } from "@t3tools/client-runtime/state/providerAuth";
+import {
+  providerAuthControlsModel,
+  createAuthCommandRunner,
+} from "@t3tools/client-runtime/state/providerAuth";
 import type { EnvironmentId, ProviderAuthState, ProviderInstanceId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { useNavigation } from "@react-navigation/native";
 import { useCallback, useContext, useState } from "react";
@@ -55,18 +57,29 @@ export function ProviderAuthScreen() {
                 {environment.label}
               </Text>
               <View className="overflow-hidden rounded-[24px] bg-card">
-                {(environment.serverConfig?.providers ?? []).map((provider, index) => (
-                  <View
-                    key={provider.instanceId}
-                    className={index === 0 ? undefined : "border-t border-border"}
-                  >
-                    <ProviderAuthRow
-                      environmentId={environment.environmentId}
-                      instanceId={provider.instanceId}
-                      displayName={provider.displayName ?? String(provider.driver)}
-                    />
-                  </View>
-                ))}
+                {(environment.serverConfig?.providers ?? [])
+                  .filter((provider) => {
+                    const model = providerAuthControlsModel(
+                      provider.auth?.status === "authenticated"
+                        ? { state: "authenticated", methods: [] }
+                        : provider.auth?.status === "unauthenticated"
+                          ? { state: "unauthenticated", methods: [] }
+                          : undefined,
+                    );
+                    return model.canSignIn || model.canSignOut || model.canCancel;
+                  })
+                  .map((provider, index) => (
+                    <View
+                      key={provider.instanceId}
+                      className={index === 0 ? undefined : "border-t border-border"}
+                    >
+                      <ProviderAuthRow
+                        environmentId={environment.environmentId}
+                        instanceId={provider.instanceId}
+                        displayName={provider.displayName ?? String(provider.driver)}
+                      />
+                    </View>
+                  ))}
               </View>
             </View>
           ))
@@ -74,20 +87,6 @@ export function ProviderAuthScreen() {
       </ScrollView>
     </View>
   );
-}
-
-function commandFailureMessage(cause: Cause.Cause<unknown>): string {
-  const squashed = Cause.squash(cause);
-  if (
-    squashed !== null &&
-    typeof squashed === "object" &&
-    "message" in squashed &&
-    typeof squashed.message === "string" &&
-    squashed.message.trim().length > 0
-  ) {
-    return squashed.message;
-  }
-  return "Provider sign-in failed";
 }
 
 function ProviderAuthRow(props: {
@@ -113,41 +112,34 @@ function ProviderAuthRow(props: {
   const pendingFlowId = status?.state === "pending" ? status.flowId : undefined;
 
   const run = useCallback(
-    async (
-      work: () => Promise<{ readonly _tag: string; readonly cause?: Cause.Cause<unknown> }>,
-    ) => {
-      setBusy(true);
-      setCommandError(undefined);
-      try {
-        const result = await work();
-        registry.refresh(statusAtom);
-        if (result._tag === "Failure" && result.cause !== undefined) {
-          setCommandError(commandFailureMessage(result.cause));
-        }
-      } finally {
-        setBusy(false);
-      }
-    },
+    createAuthCommandRunner(registry, statusAtom, setBusy, setCommandError),
     [registry, statusAtom],
   );
 
   return (
     <View className="gap-2 p-4">
       <Text className="text-lg text-foreground">{props.displayName}</Text>
-      {model.deviceCode ? (
+      {commandError ? (
+        <Text className="text-sm text-danger-foreground">{commandError}</Text>
+      ) : model.deviceCode ? (
         <Text className="text-sm text-foreground-muted">{model.deviceCode.mobileMessage}</Text>
       ) : model.browser ? (
         <Text className="text-sm text-foreground-muted">{model.browser.message}</Text>
       ) : model.account ? (
         <Text className="text-sm text-foreground-muted">{model.account}</Text>
-      ) : commandError || model.error ? (
-        <Text className="text-sm text-danger-foreground">{commandError ?? model.error}</Text>
+      ) : model.error ? (
+        <Text className="text-sm text-danger-foreground">{model.error}</Text>
       ) : null}
       <View className="flex-row gap-3">
         {model.canSignIn ? (
           <Pressable
             accessibilityRole="button"
             disabled={busy}
+            style={({ pressed }) => [
+              { padding: 8, minHeight: 44, minWidth: 44 },
+              pressed && { opacity: 0.7 },
+              busy && { opacity: 0.5 },
+            ]}
             onPress={() =>
               void run(() =>
                 begin({
@@ -167,6 +159,11 @@ function ProviderAuthRow(props: {
           <Pressable
             accessibilityRole="button"
             disabled={busy}
+            style={({ pressed }) => [
+              { padding: 8, minHeight: 44, minWidth: 44 },
+              pressed && { opacity: 0.7 },
+              busy && { opacity: 0.5 },
+            ]}
             onPress={() =>
               void run(() =>
                 logout({
@@ -183,6 +180,11 @@ function ProviderAuthRow(props: {
           <Pressable
             accessibilityRole="button"
             disabled={busy}
+            style={({ pressed }) => [
+              { padding: 8, minHeight: 44, minWidth: 44 },
+              pressed && { opacity: 0.7 },
+              busy && { opacity: 0.5 },
+            ]}
             onPress={() =>
               void run(() =>
                 cancel({

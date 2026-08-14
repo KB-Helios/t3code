@@ -2,11 +2,11 @@
 
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
-import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import { CopyIcon, LoaderIcon } from "lucide-react";
 import { useCallback, useContext, useState } from "react";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { createAuthCommandRunner } from "@t3tools/client-runtime/state/providerAuth";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { providerAuth } from "../../state/providerAuth";
@@ -14,20 +14,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { toProviderAuthControlsModel } from "./ProviderAuthControls.logic";
-
-function commandFailureMessage(cause: Cause.Cause<unknown>): string {
-  const squashed = Cause.squash(cause);
-  if (
-    squashed !== null &&
-    typeof squashed === "object" &&
-    "message" in squashed &&
-    typeof squashed.message === "string" &&
-    squashed.message.trim().length > 0
-  ) {
-    return squashed.message;
-  }
-  return "Provider sign-in failed";
-}
 
 export function ProviderAuthControls(props: {
   readonly environmentId: EnvironmentId;
@@ -65,21 +51,7 @@ export function ProviderAuthControls(props: {
   });
 
   const run = useCallback(
-    async (
-      work: () => Promise<{ readonly _tag: string; readonly cause?: Cause.Cause<unknown> }>,
-    ) => {
-      setBusy(true);
-      setCommandError(undefined);
-      try {
-        const result = await work();
-        registry.refresh(statusAtom);
-        if (result._tag === "Failure" && result.cause !== undefined) {
-          setCommandError(commandFailureMessage(result.cause));
-        }
-      } finally {
-        setBusy(false);
-      }
-    },
+    createAuthCommandRunner(registry, statusAtom, setBusy, setCommandError),
     [registry, statusAtom],
   );
 
@@ -87,6 +59,9 @@ export function ProviderAuthControls(props: {
     const panel = model.deviceCode;
     return (
       <div className="grid gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2">
+        {commandError ? (
+          <p className="text-[13px] text-destructive">{commandError}</p>
+        ) : null}
         <p className="text-[13px] text-muted-foreground">
           Open{" "}
           <a
@@ -112,7 +87,7 @@ export function ProviderAuthControls(props: {
           >
             <CopyIcon className="size-3" />
           </Button>
-          {model.canCancel ? (
+          {model.canCancel && pendingFlowId ? (
             <Button
               type="button"
               size="xs"
@@ -122,7 +97,7 @@ export function ProviderAuthControls(props: {
                 void run(() =>
                   cancel({
                     environmentId: props.environmentId,
-                    input: { flowId: pendingFlowId! },
+                    input: { flowId: pendingFlowId },
                   }),
                 )
               }

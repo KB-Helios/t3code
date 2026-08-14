@@ -742,6 +742,23 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           config: {},
         });
         assert.equal(connection.auth?.secret, "tok_live");
+
+        const updated = yield* serverSettings.updateSettings({
+          authProfiles: {
+            [authProfileId]: {
+              name: "Kevin OmniRouter Updated",
+              method: "bearer-env",
+              envKey: "OMNIROUTER_TOKEN",
+            },
+          },
+        });
+
+        const connectionAfterUpdate = yield* resolveProviderConnection(updated, {
+          driver: ProviderDriverKind.make("codex"),
+          authProfileId,
+          config: {},
+        });
+        assert.equal(connectionAfterUpdate.auth?.secret, "tok_live");
       }).pipe(
         Effect.provide(
           ServerSettingsModule.layer.pipe(

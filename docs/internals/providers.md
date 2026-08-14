@@ -60,6 +60,24 @@ Provider output comes back as internal commands such as `thread.message.assistan
 `thread.session.set`, which clients observe through `orchestration.subscribeThread`. See
 [overview.md](./overview.md) for the command/event loop.
 
+## Endpoint-attached configuration
+
+When an instance has an attached endpoint profile, Codex and Grok home layouts operate slightly differently:
+
+### Codex shadow home and `ensurePrivateConfigToml`
+
+For Codex instances with `endpointAttached: true`, the shadow home uses a **private** `config.toml`
+instead of a symlink to the shared one. The `ensurePrivateConfigToml` function performs a one-time
+copy from the shared `config.toml` (if it exists) to the private one only when:
+
+- The private entry is absent, or
+- The private entry is currently a symlink (which gets removed first)
+
+Once a private `config.toml` exists as a real file, subsequent edits to the shared file do **not**
+overwrite it. This preserves user changes in the private file. The
+`applyCodexEndpointConfig` function refreshes only the managed `model_providers` block inside the
+private file while leaving other user configuration intact.
+
 ## Server-side workers
 
 Provider work flows through three queue-backed workers. All three are built with

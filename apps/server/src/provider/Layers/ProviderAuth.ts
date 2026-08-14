@@ -249,24 +249,20 @@ const make = Effect.gen(function* () {
     );
 
   const putFlow = (flow: RegisteredFlow) =>
-    readFlows.pipe(
-      Effect.flatMap((flows) => {
-        const next = new Map(flows);
-        next.set(String(flow.flowId), flow);
-        return writeFlows(next);
-      }),
-    );
+    Ref.update(flowsRef, (flows) => {
+      const next = new Map(flows);
+      next.set(String(flow.flowId), flow);
+      return next;
+    });
 
   const updateFlow = (flowId: string, patch: Partial<RegisteredFlow>) =>
-    readFlows.pipe(
-      Effect.flatMap((flows) => {
-        const current = flows.get(flowId);
-        if (current === undefined) return Effect.void;
-        const next = new Map(flows);
-        next.set(flowId, { ...current, ...patch });
-        return writeFlows(next);
-      }),
-    );
+    Ref.update(flowsRef, (flows) => {
+      const current = flows.get(flowId);
+      if (current === undefined) return flows;
+      const next = new Map(flows);
+      next.set(flowId, { ...current, ...patch });
+      return next;
+    });
 
   const killTracked = (flow: RegisteredFlow) =>
     flow.kill().pipe(
@@ -275,20 +271,20 @@ const make = Effect.gen(function* () {
     );
 
   const retireInstanceFlows = (instanceId: ProviderInstanceId) =>
-    readFlows.pipe(
-      Effect.flatMap((flows) => {
-        const next = new Map(flows);
-        const retiring: RegisteredFlow[] = [];
-        for (const [id, flow] of next) {
-          if (flow.instanceId === instanceId) {
-            retiring.push(flow);
-            next.delete(id);
-          }
+    Ref.modify(flowsRef, (flows) => {
+      const next = new Map(flows);
+      const retiring: RegisteredFlow[] = [];
+      for (const [id, flow] of flows) {
+        if (flow.instanceId === instanceId) {
+          retiring.push(flow);
+          next.delete(id);
         }
-        return Effect.forEach(retiring, killTracked, { discard: true }).pipe(
-          Effect.andThen(writeFlows(next)),
-        );
-      }),
+      }
+      return [retiring, next];
+    }).pipe(
+      Effect.flatMap((retiring) =>
+        Effect.forEach(retiring, killTracked, { discard: true }),
+      ),
     );
 
   const requireInstance = (instanceId: ProviderInstanceId) =>
@@ -309,7 +305,7 @@ const make = Effect.gen(function* () {
     const decoder = new TextDecoder();
     return stdout.pipe(
       Stream.mapAccum(
-        () => "",
+        "",
         (buffer, chunk) => {
           const next = `${buffer}${decoder.decode(chunk)}`;
           const parsed = parseGrokDeviceAuthOutput(next);
@@ -563,7 +559,6 @@ const make = Effect.gen(function* () {
       if (fromStore !== undefined) return fromStore;
       if (instance.auth !== undefined) {
         const status = yield* instance.auth.getStatus();
-        if (status.state === "authenticated") return status;
         return status;
       }
       const snapshot = yield* instance.snapshot.getSnapshot;
@@ -645,10 +640,19 @@ const make = Effect.gen(function* () {
       yield* killTracked(flow);
       yield* updateFlow(String(flow.flowId), { cancelled: true });
       const status = yield* getStatus({ instanceId: flow.instanceId });
+      if (status.state === "authenticated" || status.state === "error") {
+        yield* updateFlow(String(flow.flowId), { cancelled: true, state: status });
+        return status;
+      }
+      const instance = yield* requireInstance(flow.instanceId);
+      const grok = instance.auth !== undefined ? grokAuthConfigs.get(instance.auth) : undefined;
+      const codex = instance.auth !== undefined ? codexAuthConfigs.get(instance.auth) : undefined;
+      const fallbackMethods: ProviderAuthMethod[] =
+        grok !== undefined ? ["device-code"] : codex !== undefined ? ["browser"] : [];
       const next: ProviderAuthState =
         status.state === "unauthenticated"
           ? status
-          : { state: "unauthenticated", methods: ["device-code"] };
+          : { state: "unauthenticated", methods: fallbackMethods };
       yield* updateFlow(String(flow.flowId), { cancelled: true, state: next });
       return next;
     });
@@ -673,4 +677,5 @@ const make = Effect.gen(function* () {
   return ProviderAuth.of({ getStatus, begin, getFlow, cancel, logout });
 });
 
-export const layer = Layer.effect(ProviderAuth, make);
+export const ProviderAuthLive = Layer.effect(ProviderAuth, make);
+export const layer = ProviderAuthLive;

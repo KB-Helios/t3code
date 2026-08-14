@@ -42,6 +42,10 @@ export function missingEndpointProfileMessage(id: EndpointProfileId): string {
   return `Endpoint profile '${id}' was not found`;
 }
 
+export function missingAuthProfileMessage(id: AuthProfileId): string {
+  return `Auth profile '${id}' was not found`;
+}
+
 export function environmentWithResolvedAuth(
   environment: ProviderInstanceEnvironment | undefined,
   connection: ResolvedProviderConnection,
@@ -88,6 +92,12 @@ export const resolveProviderConnection = Effect.fn("resolveProviderConnection")(
           store.get(authProfileSecretName(authProfileId)).pipe(
             Effect.map((bytes) =>
               Option.isSome(bytes) ? textDecoder.decode(bytes.value) : undefined,
+            ),
+            Effect.tapError((error) =>
+              Effect.logError(
+                `Failed to load auth profile secret for '${authProfileId}'`,
+                error,
+              ),
             ),
             Effect.orElseSucceed(() => undefined),
           ),

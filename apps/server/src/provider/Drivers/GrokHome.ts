@@ -52,15 +52,40 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
   const path = yield* Path.Path;
   const sharedHomePath = path.resolve(path.join(NodeOS.homedir(), ".grok"));
   const configuredHome = config.homePath.trim();
+  const endpointAttached = options?.endpointAttached === true;
+
   if (configuredHome.length > 0) {
     const effectiveHomePath = path.resolve(expandHomePath(configuredHome));
+    const isShared = effectiveHomePath === sharedHomePath;
+
+    if (endpointAttached && isShared) {
+      const instanceId = options.instanceId?.trim() ?? "";
+      const stateDir = options.stateDir?.trim() ?? "";
+      if (instanceId.length > 0 && stateDir.length > 0) {
+        return {
+          sharedHomePath,
+          effectiveHomePath: path.join(stateDir, "provider-homes", instanceId, "grok"),
+          isolated: true,
+        };
+      }
+      Effect.logWarning(
+        "Endpoint-attached instance resolved to shared home path - falling back to provider-owned path",
+      );
+      return {
+        sharedHomePath,
+        effectiveHomePath: undefined,
+        isolated: false,
+      };
+    }
+
     return {
       sharedHomePath,
       effectiveHomePath,
-      isolated: effectiveHomePath !== sharedHomePath,
+      isolated: !isShared,
     };
   }
-  if (options?.endpointAttached === true) {
+
+  if (endpointAttached) {
     const instanceId = options.instanceId?.trim() ?? "";
     const stateDir = options.stateDir?.trim() ?? "";
     if (instanceId.length > 0 && stateDir.length > 0) {
@@ -71,6 +96,7 @@ export const resolveGrokHomeLayout = Effect.fn("resolveGrokHomeLayout")(function
       };
     }
   }
+
   return {
     sharedHomePath,
     effectiveHomePath: undefined,

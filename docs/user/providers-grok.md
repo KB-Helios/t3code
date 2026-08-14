@@ -32,3 +32,7 @@ an isolated home automatically.
 
 Use **Sign out** on the same provider row. For an API-key or bearer auth profile, this removes the
 stored secret. It does not send tokens to the client.
+
+**Note:** Device-code sessions are not removed from `GROK_HOME` by Sign out and must be cleared
+manually on the host machine if needed. To clear a device-code session, remove the credentials from
+the Grok home directory or run `grok logout` on the host.

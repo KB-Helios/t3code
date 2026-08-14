@@ -34,7 +34,7 @@ export class GrokEndpointConfigFileSystemError extends Schema.TaggedErrorClass<G
   "GrokEndpointConfigFileSystemError",
   {
     path: Schema.String,
-    operation: Schema.Literals(["readFile", "writeFile"]),
+    operation: Schema.Literals(["readFile", "writeFile", "makeDirectory"]),
     cause: Schema.Defect(),
   },
 ) {
@@ -44,7 +44,16 @@ export class GrokEndpointConfigFileSystemError extends Schema.TaggedErrorClass<G
 }
 
 function escapeTomlBasicString(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\t", "\\t")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, (char) => {
+      const code = char.charCodeAt(0);
+      return `\\u${code.toString(16).padStart(4, "0")}`;
+    });
 }
 
 function isTableHeader(line: string): boolean {
@@ -162,8 +171,8 @@ export const applyGrokEndpointConfig = Effect.fn("applyGrokEndpointConfig")(func
     Effect.catchTags({
       PlatformError: (cause) =>
         new GrokEndpointConfigFileSystemError({
-          path: configPath,
-          operation: "writeFile",
+          path: path.dirname(configPath),
+          operation: "makeDirectory",
           cause,
         }),
     }),

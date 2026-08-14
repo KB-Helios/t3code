@@ -7,19 +7,19 @@ import {
   type ServerSettings,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
-import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import {
   authProfileSecretName,
   environmentWithResolvedAuth,
   missingEndpointProfileMessage,
   resolveProviderConnection,
 } from "./resolveProviderConnection.ts";
+import {
+  OMNIROUTER_ENDPOINT_ID,
+  OMNIROUTER_AUTH_ID,
+  memorySecretStoreLayer,
+} from "./testFixtures.ts";
 
-const OMNIROUTER_ENDPOINT_ID = EndpointProfileId.make("omnirouter_prod");
-const OMNIROUTER_AUTH_ID = AuthProfileId.make("omnirouter_kevin");
 const MISSING_ENDPOINT_ID = EndpointProfileId.make("missing_endpoint");
 
 const settingsWithProfiles = {
@@ -48,21 +48,6 @@ const linkedInstance = {
   authProfileId: OMNIROUTER_AUTH_ID,
   config: {},
 };
-
-const memorySecretStoreLayer = (secrets: Readonly<Record<string, string>>) =>
-  Layer.succeed(
-    ServerSecretStore.ServerSecretStore,
-    ServerSecretStore.ServerSecretStore.of({
-      get: (name) =>
-        Effect.succeed(
-          name in secrets ? Option.some(new TextEncoder().encode(secrets[name])) : Option.none(),
-        ),
-      set: () => Effect.void,
-      create: () => Effect.void,
-      getOrCreateRandom: () => Effect.succeed(new Uint8Array()),
-      remove: () => Effect.void,
-    }),
-  );
 
 describe("resolveProviderConnection", () => {
   it.effect("omits endpoint and auth when the instance has no profile ids", () =>

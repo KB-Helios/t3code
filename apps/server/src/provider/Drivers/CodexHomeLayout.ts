@@ -70,6 +70,11 @@ export const resolveCodexHomeLayout = Effect.fn("resolveCodexHomeLayout")(functi
   if (endpointAttached && shadowHomePath.length === 0) {
     const instanceId = options?.instanceId?.trim() ?? "";
     const stateDir = options?.stateDir?.trim() ?? "";
+    if (instanceId.length === 0 || stateDir.length === 0) {
+      Effect.logWarning(
+        `endpointAttached request with ${instanceId.length === 0 ? "empty instanceId" : "empty stateDir"} - falling back to direct layout`,
+      );
+    }
     if (instanceId.length > 0 && stateDir.length > 0) {
       shadowHomePath = path.join(stateDir, "provider-homes", instanceId, "codex");
     }
